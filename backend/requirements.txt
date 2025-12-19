@@ -1,0 +1,41 @@
+# Bauhaus Fine-Tuning Studio - Backend Dependencies
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+websockets>=12.0
+
+# HTTP Client
+httpx>=0.26.0
+aiofiles>=23.2.1
+
+# HuggingFace
+huggingface-hub>=0.20.0
+transformers>=4.36.0
+
+# Data Processing
+pandas>=2.1.0
+openpyxl>=3.1.2
+xlrd>=2.0.1
+pyarrow>=14.0.0
+
+# Image Processing
+Pillow>=10.2.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Optional: For CUDA/GPU support (uncomment as needed)
+# torch>=2.1.0
+# bitsandbytes>=0.42.0
+# peft>=0.7.0
+# trl>=0.7.0
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+black>=23.12.0
+ruff>=0.1.0
