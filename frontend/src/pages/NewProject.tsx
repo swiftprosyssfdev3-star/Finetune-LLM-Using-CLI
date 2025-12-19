@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   createProject,
@@ -23,6 +23,8 @@ import {
   Terminal,
   Sparkles,
   Play,
+  Home,
+  Settings,
 } from 'lucide-react'
 
 type Step = 'info' | 'upload' | 'cli' | 'skills' | 'ready'
@@ -245,6 +247,20 @@ export default function NewProject() {
 
   return (
     <div className="min-h-screen">
+      {/* Navigation Bar */}
+      <div className="bg-white border-b border-bauhaus-silver px-8 py-4">
+        <div className="flex items-center justify-between max-w-5xl mx-auto">
+          <Link to="/home" className="flex items-center gap-2 text-bauhaus-gray hover:text-bauhaus-black transition">
+            <Home className="w-5 h-5" />
+            <span className="font-medium">Home</span>
+          </Link>
+          <Link to="/settings" className="flex items-center gap-2 text-bauhaus-gray hover:text-bauhaus-black transition">
+            <Settings className="w-5 h-5" />
+            <span className="font-medium">Settings</span>
+          </Link>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="page-header">
         <h1 className="page-title">New Fine-Tuning Project</h1>

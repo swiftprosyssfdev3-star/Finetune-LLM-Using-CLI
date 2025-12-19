@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getSettings,
@@ -25,6 +26,8 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
+  Home,
+  ArrowRight,
 } from 'lucide-react'
 
 type ConnectionStatus = {
@@ -167,37 +170,57 @@ export default function Settings() {
     )
   }
 
+  // Check if API is configured
+  const hasApiConfigured = !!(openaiBaseUrl && openaiApiKey)
+
   return (
     <div className="min-h-screen">
-      {/* Header */}
-      <div className="page-header">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="page-title flex items-center gap-3">
-              <SettingsIcon className="w-8 h-8" />
-              Settings
-            </h1>
-            <p className="page-subtitle">
-              Configure API keys, tokens, and application preferences
-            </p>
-          </div>
+      {/* Navigation Bar */}
+      <div className="bg-white border-b border-bauhaus-silver px-8 py-4">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
+          <Link to="/home" className="flex items-center gap-2 text-bauhaus-gray hover:text-bauhaus-black transition">
+            <Home className="w-5 h-5" />
+            <span className="font-medium">Home</span>
+          </Link>
           <div className="flex items-center gap-3">
             {hasUnsavedChanges && (
               <Badge variant="yellow" className="animate-pulse">
                 <AlertCircle className="w-3 h-3 mr-1" />
-                Unsaved Changes
+                Unsaved
               </Badge>
             )}
             <Button
-              variant="red"
+              variant="outline"
+              size="sm"
               onClick={handleSave}
               loading={saveMutation.isPending}
               disabled={!hasUnsavedChanges}
             >
-              <Save className="w-4 h-4 mr-2" />
-              Save All Settings
+              <Save className="w-4 h-4 mr-1" />
+              Save
             </Button>
+            {hasApiConfigured && (
+              <Link to="/new">
+                <Button variant="red" size="sm">
+                  New Project
+                  <ArrowRight className="w-4 h-4 ml-1" />
+                </Button>
+              </Link>
+            )}
           </div>
+        </div>
+      </div>
+
+      {/* Header */}
+      <div className="page-header">
+        <div className="max-w-6xl mx-auto">
+          <h1 className="page-title flex items-center gap-3">
+            <SettingsIcon className="w-8 h-8" />
+            Settings
+          </h1>
+          <p className="page-subtitle">
+            Configure API keys, tokens, and application preferences
+          </p>
         </div>
       </div>
 

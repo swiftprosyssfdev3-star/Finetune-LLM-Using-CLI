@@ -30,8 +30,20 @@ const navigation = [
 function Sidebar() {
   const location = useLocation()
 
-  // Hide sidebar on welcome page
-  if (location.pathname === '/' || location.pathname === '/home') {
+  // Hide sidebar on welcome page and during the main project flow
+  const hideSidebarPaths = [
+    '/',
+    '/home',
+    '/new',      // New project wizard
+    '/settings', // Settings during onboarding
+    '/models',   // Model browser
+  ]
+
+  // Also hide for training pages
+  const isTrainingPage = location.pathname.includes('/train')
+  const shouldHide = hideSidebarPaths.includes(location.pathname) || isTrainingPage
+
+  if (shouldHide) {
     return null
   }
 
@@ -94,13 +106,23 @@ function Sidebar() {
 
 function App() {
   const location = useLocation()
-  const isWelcomePage = location.pathname === '/' || location.pathname === '/home'
+
+  // Pages that don't show sidebar (focused flow pages)
+  const noSidebarPaths = [
+    '/',
+    '/home',
+    '/new',
+    '/settings',
+    '/models',
+  ]
+  const isTrainingPage = location.pathname.includes('/train')
+  const hasSidebar = !noSidebarPaths.includes(location.pathname) && !isTrainingPage
 
   return (
     <div className="flex min-h-screen bg-bauhaus-light">
       <Sidebar />
 
-      <main className={cn('flex-1', !isWelcomePage && 'ml-64')}>
+      <main className={cn('flex-1', hasSidebar && 'ml-64')}>
         <Routes>
           <Route path="/" element={<Welcome />} />
           <Route path="/home" element={<Welcome />} />

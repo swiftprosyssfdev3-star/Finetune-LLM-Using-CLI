@@ -11,6 +11,7 @@ import {
   ArrowRight,
   CheckCircle,
   AlertCircle,
+  LayoutDashboard,
 } from 'lucide-react'
 
 export default function Welcome() {
@@ -156,8 +157,17 @@ export default function Welcome() {
           </CardContent>
         </Card>
 
+        {/* Existing Projects Link */}
+        <div className="text-center mt-8">
+          <Link to="/dashboard" className="inline-flex items-center gap-2 text-bauhaus-charcoal hover:text-bauhaus-black transition">
+            <LayoutDashboard className="w-5 h-5" />
+            <span className="font-medium">View Existing Projects</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
         {/* Footer */}
-        <div className="text-center mt-8 text-sm text-bauhaus-gray">
+        <div className="text-center mt-6 text-sm text-bauhaus-gray">
           <p>
             Powered by Claude Code, Gemini CLI, and Aider
           </p>
