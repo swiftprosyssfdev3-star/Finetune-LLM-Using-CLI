@@ -51,24 +51,52 @@ class TerminalManager:
     """
 
     # Agent commands - these CLI tools must be installed
+    # All agents configured for YOLO/autonomous mode - no permission prompts
     AGENT_COMMANDS = {
-        'claude': ['claude'],
-        'gemini': ['gemini'],
+        'claude': ['claude', '--dangerously-skip-permissions'],  # YOLO mode - skip all permission prompts
+        'gemini': ['gemini'],  # Gemini uses environment variables for auto mode
         'codex': ['codex'],
         'qwen': ['qwen'],
-        'aider': ['aider', '--yes'],
+        'aider': ['aider', '--yes', '--no-suggest-shell-commands'],  # Auto-approve all changes
         'bash': ['bash'],
         'python': ['python3'],
     }
 
-    # Agent-specific environment setup
+    # Agent-specific environment setup for autonomous operation
     AGENT_ENV = {
         'claude': {
             'ANTHROPIC_MODEL': 'claude-sonnet-4-20250514',
+            'CLAUDE_CODE_ENTRYPOINT': '1',  # Mark as programmatic entry
+        },
+        'gemini': {
+            'GEMINI_AUTO_APPROVE': 'true',  # Auto-approve changes
+            'GEMINI_SANDBOX_RUN': 'true',   # Allow shell commands
         },
         'aider': {
-            'AIDER_AUTO_COMMITS': 'true',
+            'AIDER_AUTO_COMMITS': 'true',   # Auto-commit changes
+            'AIDER_YES': 'true',            # Auto-yes to all prompts
+            'AIDER_AUTO_LINT': 'true',      # Auto-lint code
         },
+        'codex': {
+            'CODEX_AUTO_APPROVE': 'true',
+        },
+        'qwen': {
+            'QWEN_AUTO_RUN': 'true',
+        },
+    }
+
+    # Initial prompts to send to agents after startup
+    AGENT_INITIAL_PROMPTS = {
+        'claude': """Read the CLAUDE.md file in this directory for project context and instructions.
+Then autonomously start working on the VLM fine-tuning task described there.
+Create progress checkpoints, generate training code, and keep working until the task is complete.
+Do not ask for permission - execute all necessary operations autonomously.""",
+        'gemini': """Read the GEMINI.md file for project context and task instructions.
+Start the VLM fine-tuning workflow autonomously. Generate code, run training, and report progress.
+Execute all operations without asking for confirmation.""",
+        'aider': """Read the project context from README.md and any .md files.
+Start implementing the VLM fine-tuning code autonomously.
+Commit changes as you go and keep working until complete.""",
     }
 
     def __init__(self):
@@ -340,6 +368,20 @@ class TerminalManager:
                 'session_id': session_id,
                 'agent': agent,
             })
+
+            # Wait a moment for agent to initialize
+            await asyncio.sleep(1.0)
+
+            # Send initial autonomous prompt if available
+            initial_prompt = self.AGENT_INITIAL_PROMPTS.get(agent)
+            if initial_prompt:
+                await asyncio.sleep(0.5)  # Let agent fully start
+                await self.send_command(session_id, initial_prompt)
+                await websocket.send_json({
+                    'type': 'status',
+                    'status': 'autonomous',
+                    'message': f'{agent} started in autonomous mode',
+                })
 
             # Handle incoming messages
             while session.running:
