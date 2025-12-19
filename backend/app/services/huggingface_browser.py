@@ -10,7 +10,6 @@ Features:
 """
 
 from huggingface_hub import HfApi, snapshot_download, hf_hub_download
-from huggingface_hub import ModelFilter
 from typing import List, Optional, Dict, Any, Tuple, Callable
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -164,7 +163,8 @@ class HuggingFaceBrowser:
         if library:
             filter_kwargs['library'] = library
 
-        model_filter = ModelFilter(**filter_kwargs) if filter_kwargs else None
+        task_filter = filter_kwargs.get('task')
+        library_filter = filter_kwargs.get('library')
 
         # Run search in executor to avoid blocking
         loop = asyncio.get_event_loop()
@@ -172,7 +172,8 @@ class HuggingFaceBrowser:
             None,
             lambda: list(self.api.list_models(
                 search=query,
-                filter=model_filter,
+                task=task_filter,
+                library=library_filter,
                 sort=sort,
                 direction=-1,
                 limit=limit + offset + 200,  # Get extra for filtering
