@@ -3,9 +3,8 @@ import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { WebLinksAddon } from 'xterm-addon-web-links'
 import 'xterm/css/xterm.css'
-import { cn } from '@/lib/utils'
-import { getAgentColor, getAgentLabel } from '@/lib/utils'
-import { Square, Pause, Play, X, Maximize2, Minimize2 } from 'lucide-react'
+import { cn, getAgentColor, getAgentLabel } from '@/lib/utils'
+import { Pause, X, Maximize2, Minimize2 } from 'lucide-react'
 import { createTerminalWebSocket } from '@/lib/api'
 
 interface BauhausTerminalProps {
@@ -87,12 +86,6 @@ export function BauhausTerminal({
   const sendInput = useCallback((data: string) => {
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ type: 'input', data }))
-    }
-  }, [])
-
-  const sendCommand = useCallback((command: string) => {
-    if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'command', command }))
     }
   }, [])
 

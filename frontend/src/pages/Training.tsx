@@ -3,13 +3,10 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getProject } from '@/lib/api'
 import { BauhausTerminal } from '@/components/terminal'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
-import { Button, Badge, ProgressBar, AgentBadge } from '@/components/bauhaus'
-import { getAgentLabel, getAgentColor } from '@/lib/utils'
+import { Button, Badge, ProgressBar } from '@/components/bauhaus'
+import { getAgentColor } from '@/lib/utils'
 import {
   Play,
-  Pause,
-  Square,
   Terminal,
   Cpu,
   Activity,

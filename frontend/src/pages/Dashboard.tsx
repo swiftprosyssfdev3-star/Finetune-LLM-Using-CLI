@@ -1,16 +1,16 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { listProjects, getStatus } from '@/lib/api'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
+import { Card, CardContent } from '@/components/bauhaus'
 import { Button, Badge } from '@/components/bauhaus'
 import { formatTimeAgo } from '@/lib/utils'
 import {
   FolderOpen,
   Plus,
   Box,
-  HardDrive,
   Activity,
   ArrowRight,
+  Home,
 } from 'lucide-react'
 
 export default function Dashboard() {
@@ -30,7 +30,12 @@ export default function Dashboard() {
       <div className="page-header">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">Dashboard</h1>
+            <div className="flex items-center gap-3 mb-1">
+              <Link to="/" className="text-bauhaus-gray hover:text-bauhaus-charcoal transition">
+                <Home className="w-5 h-5" />
+              </Link>
+              <h1 className="page-title">Dashboard</h1>
+            </div>
             <p className="page-subtitle">Manage your VLM fine-tuning projects</p>
           </div>
           <Link to="/new">

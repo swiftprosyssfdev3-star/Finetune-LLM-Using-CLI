@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { searchModels, getModelDetails, downloadModel, getCachedModels, type ModelSearchResult } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
-import { Button, Input, Badge, ProgressBar } from '@/components/bauhaus'
+import { Button, Badge } from '@/components/bauhaus'
 import { formatNumber } from '@/lib/utils'
 import {
   Search,
@@ -14,7 +14,6 @@ import {
   HardDrive,
   ChevronLeft,
   ChevronRight,
-  Filter,
   Check,
   ExternalLink,
 } from 'lucide-react'
@@ -42,7 +41,7 @@ export default function HuggingFaceBrowser() {
     enabled: searchQuery.length > 0,
   })
 
-  const { data: modelDetails, isLoading: loadingDetails } = useQuery({
+  const { data: modelDetails } = useQuery({
     queryKey: ['model-details', selectedModel],
     queryFn: () => getModelDetails(selectedModel!),
     enabled: !!selectedModel,
@@ -169,7 +168,7 @@ export default function HuggingFaceBrowser() {
                     }
                     cached={cachedModels?.some(
                       (c) => c.name === model.model_id.replace('/', '--')
-                    )}
+                    ) ?? false}
                   />
                 ))}
 

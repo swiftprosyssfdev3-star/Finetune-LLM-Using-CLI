@@ -20,7 +20,6 @@ import {
   RefreshCw,
   Sparkles,
   Database,
-  Palette,
   HardDrive,
   Zap,
   AlertCircle,
