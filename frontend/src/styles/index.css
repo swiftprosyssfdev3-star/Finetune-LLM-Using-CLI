@@ -1,0 +1,322 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   BAUHAUS DESIGN SYSTEM
+   Based on Kandinsky's Color-Form Theory: Circle=Blue, Square=Red, Triangle=Yellow
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* PRIMARY BAUHAUS COLORS */
+  --bauhaus-red: #E53935;
+  --bauhaus-red-dark: #C62828;
+  --bauhaus-red-light: #EF5350;
+
+  --bauhaus-blue: #1E88E5;
+  --bauhaus-blue-dark: #1565C0;
+  --bauhaus-blue-light: #42A5F5;
+
+  --bauhaus-yellow: #FDD835;
+  --bauhaus-yellow-dark: #F9A825;
+  --bauhaus-yellow-light: #FFEE58;
+
+  /* NEUTRAL PALETTE */
+  --bauhaus-black: #212121;
+  --bauhaus-charcoal: #424242;
+  --bauhaus-gray: #757575;
+  --bauhaus-silver: #BDBDBD;
+  --bauhaus-light: #F5F5F5;
+  --bauhaus-white: #FAFAFA;
+
+  /* TERMINAL COLORS */
+  --terminal-bg: #0D1117;
+  --terminal-surface: #161B22;
+  --terminal-border: #30363D;
+  --terminal-text: #C9D1D9;
+  --terminal-green: #7EE787;
+  --terminal-cyan: #79C0FF;
+  --terminal-orange: #FFA657;
+  --terminal-red: #FF7B72;
+  --terminal-purple: #D2A8FF;
+
+  /* AGENT COLORS */
+  --agent-claude: #D97706;
+  --agent-gemini: #4285F4;
+  --agent-codex: #10A37F;
+  --agent-qwen: #6366F1;
+  --agent-aider: #EC4899;
+}
+
+/* BASE STYLES */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background-color: var(--bauhaus-light);
+  color: var(--bauhaus-black);
+  line-height: 1.6;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   BAUHAUS COMPONENTS
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+@layer components {
+  /* Bauhaus Button */
+  .btn-bauhaus {
+    @apply inline-flex items-center justify-center px-6 py-3 font-medium text-white transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-bauhaus-red {
+    @apply btn-bauhaus bg-bauhaus-red hover:bg-bauhaus-red-dark focus:ring-bauhaus-red;
+  }
+
+  .btn-bauhaus-blue {
+    @apply btn-bauhaus bg-bauhaus-blue hover:bg-bauhaus-blue-dark focus:ring-bauhaus-blue;
+  }
+
+  .btn-bauhaus-yellow {
+    @apply btn-bauhaus bg-bauhaus-yellow text-bauhaus-black hover:bg-bauhaus-yellow-dark focus:ring-bauhaus-yellow;
+  }
+
+  .btn-bauhaus-outline {
+    @apply btn-bauhaus bg-transparent border-2 border-bauhaus-black text-bauhaus-black;
+    @apply hover:bg-bauhaus-black hover:text-white;
+  }
+
+  /* Bauhaus Card */
+  .card-bauhaus {
+    @apply bg-white rounded-none border-l-4 shadow-lg p-6;
+  }
+
+  .card-bauhaus-red {
+    @apply card-bauhaus border-bauhaus-red;
+  }
+
+  .card-bauhaus-blue {
+    @apply card-bauhaus border-bauhaus-blue;
+  }
+
+  .card-bauhaus-yellow {
+    @apply card-bauhaus border-bauhaus-yellow;
+  }
+
+  /* Bauhaus Input */
+  .input-bauhaus {
+    @apply w-full px-4 py-3 border-2 border-bauhaus-charcoal bg-white;
+    @apply focus:outline-none focus:border-bauhaus-blue transition-colors;
+    @apply placeholder:text-bauhaus-gray;
+  }
+
+  /* Bauhaus Section */
+  .section-bauhaus {
+    @apply border-t-4 border-bauhaus-black pt-6;
+  }
+
+  /* Terminal Container */
+  .terminal-container {
+    @apply bg-terminal-bg border border-terminal-border rounded-lg overflow-hidden;
+  }
+
+  .terminal-header {
+    @apply bg-terminal-surface px-4 py-2 border-b border-terminal-border flex items-center justify-between;
+  }
+
+  .terminal-body {
+    @apply p-0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   XTERM STYLES
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+.xterm {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 14px;
+  padding: 8px;
+}
+
+.xterm-viewport {
+  background-color: var(--terminal-bg) !important;
+}
+
+.xterm-screen {
+  padding: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   LAYOUT HELPERS
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+.sidebar {
+  @apply w-64 bg-white border-r border-bauhaus-silver h-screen fixed left-0 top-0;
+}
+
+.main-content {
+  @apply ml-64 min-h-screen;
+}
+
+.page-header {
+  @apply bg-white border-b border-bauhaus-silver px-8 py-6;
+}
+
+.page-title {
+  @apply text-3xl font-bold text-bauhaus-black;
+}
+
+.page-subtitle {
+  @apply text-bauhaus-gray mt-1;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes pulse-bauhaus {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes spin-bauhaus {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-pulse-bauhaus {
+  animation: pulse-bauhaus 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-spin-bauhaus {
+  animation: spin-bauhaus 1s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   AGENT BADGES
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+.agent-badge {
+  @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white;
+}
+
+.agent-badge-claude {
+  @apply agent-badge;
+  background-color: var(--agent-claude);
+}
+
+.agent-badge-gemini {
+  @apply agent-badge;
+  background-color: var(--agent-gemini);
+}
+
+.agent-badge-codex {
+  @apply agent-badge;
+  background-color: var(--agent-codex);
+}
+
+.agent-badge-qwen {
+  @apply agent-badge;
+  background-color: var(--agent-qwen);
+}
+
+.agent-badge-aider {
+  @apply agent-badge;
+  background-color: var(--agent-aider);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   PROGRESS BAR
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+.progress-bar {
+  @apply w-full h-2 bg-bauhaus-silver rounded-full overflow-hidden;
+}
+
+.progress-bar-fill {
+  @apply h-full transition-all duration-300;
+}
+
+.progress-bar-fill-red {
+  @apply progress-bar-fill bg-bauhaus-red;
+}
+
+.progress-bar-fill-blue {
+  @apply progress-bar-fill bg-bauhaus-blue;
+}
+
+.progress-bar-fill-yellow {
+  @apply progress-bar-fill bg-bauhaus-yellow;
+}
+
+.progress-bar-fill-green {
+  @apply progress-bar-fill bg-terminal-green;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   DROPZONE
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+.dropzone {
+  @apply border-2 border-dashed border-bauhaus-gray rounded-lg p-12 text-center;
+  @apply transition-all duration-200 cursor-pointer;
+}
+
+.dropzone:hover {
+  @apply border-bauhaus-blue bg-bauhaus-blue/5;
+}
+
+.dropzone-active {
+  @apply border-bauhaus-blue bg-bauhaus-blue/10;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bauhaus-light);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bauhaus-silver);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--bauhaus-gray);
+}
+
+/* Dark scrollbar for terminal */
+.terminal-container ::-webkit-scrollbar-track {
+  background: var(--terminal-bg);
+}
+
+.terminal-container ::-webkit-scrollbar-thumb {
+  background: var(--terminal-border);
+}
