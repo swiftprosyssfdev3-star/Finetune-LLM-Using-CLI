@@ -51,24 +51,57 @@ class TerminalManager:
     """
 
     # Agent commands - these CLI tools must be installed
+    # All agents configured for YOLO/autonomous mode - no permission prompts
     AGENT_COMMANDS = {
-        'claude': ['claude'],
-        'gemini': ['gemini'],
+        'claude': ['claude', '--dangerously-skip-permissions'],  # YOLO mode - skip all permission prompts
+        'gemini': ['gemini'],  # Gemini uses environment variables for auto mode
         'codex': ['codex'],
         'qwen': ['qwen'],
-        'aider': ['aider', '--yes'],
+        'aider': ['aider', '--yes', '--no-suggest-shell-commands'],  # Auto-approve all changes
         'bash': ['bash'],
         'python': ['python3'],
     }
 
-    # Agent-specific environment setup
+    # Agent-specific environment setup for autonomous operation
+    # Note: Model configuration is now handled dynamically via _build_agent_env()
     AGENT_ENV = {
         'claude': {
-            'ANTHROPIC_MODEL': 'claude-sonnet-4-20250514',
+            'CLAUDE_CODE_ENTRYPOINT': '1',  # Mark as programmatic entry
+            # ANTHROPIC_MODEL is set dynamically from settings via _build_agent_env()
+        },
+        'gemini': {
+            'GEMINI_AUTO_APPROVE': 'true',  # Auto-approve changes
+            'GEMINI_SANDBOX_RUN': 'true',   # Allow shell commands
+            # GEMINI_MODEL is set dynamically from settings via _build_agent_env()
         },
         'aider': {
-            'AIDER_AUTO_COMMITS': 'true',
+            'AIDER_AUTO_COMMITS': 'true',   # Auto-commit changes
+            'AIDER_YES': 'true',            # Auto-yes to all prompts
+            'AIDER_AUTO_LINT': 'true',      # Auto-lint code
+            # AIDER_MODEL and OPENAI_API_KEY/BASE are set dynamically via _build_agent_env()
         },
+        'codex': {
+            'CODEX_AUTO_APPROVE': 'true',
+            # OPENAI_MODEL and API settings are set dynamically via _build_agent_env()
+        },
+        'qwen': {
+            'QWEN_AUTO_RUN': 'true',
+            # QWEN_MODEL is set dynamically from settings via _build_agent_env()
+        },
+    }
+
+    # Initial prompts to send to agents after startup
+    AGENT_INITIAL_PROMPTS = {
+        'claude': """Read the CLAUDE.md file in this directory for project context and instructions.
+Then autonomously start working on the VLM fine-tuning task described there.
+Create progress checkpoints, generate training code, and keep working until the task is complete.
+Do not ask for permission - execute all necessary operations autonomously.""",
+        'gemini': """Read the GEMINI.md file for project context and task instructions.
+Start the VLM fine-tuning workflow autonomously. Generate code, run training, and report progress.
+Execute all operations without asking for confirmation.""",
+        'aider': """Read the project context from README.md and any .md files.
+Start implementing the VLM fine-tuning code autonomously.
+Commit changes as you go and keep working until complete.""",
     }
 
     def __init__(self):
@@ -87,6 +120,82 @@ class TerminalManager:
             return ['bash', '-c', f'echo "Agent {agent} not found. Using bash shell." && bash']
 
         return commands
+
+    def _build_agent_env(self, agent: str, model_config: Dict[str, str]) -> Dict[str, str]:
+        """Build environment variables for agent with model config from settings.
+
+        Args:
+            agent: The agent type (claude, gemini, aider, etc.)
+            model_config: Model configuration from settings containing:
+                - default_model: The configured model name
+                - api_key: API key for providers
+                - base_url: Base URL for API
+
+        Returns:
+            Dictionary of environment variables for the agent
+        """
+        env = {}
+        default_model = model_config.get('default_model', '')
+        api_key = model_config.get('api_key', '')
+        base_url = model_config.get('base_url', '')
+
+        if agent == 'claude':
+            # Claude Code uses ANTHROPIC_MODEL environment variable
+            # If a model is configured in settings, use it
+            if default_model:
+                # Map common model names to Anthropic model IDs
+                if 'claude' in default_model.lower():
+                    env['ANTHROPIC_MODEL'] = default_model
+                elif 'sonnet' in default_model.lower():
+                    env['ANTHROPIC_MODEL'] = 'claude-sonnet-4-20250514'
+                elif 'opus' in default_model.lower():
+                    env['ANTHROPIC_MODEL'] = 'claude-opus-4-20250514'
+                elif 'haiku' in default_model.lower():
+                    env['ANTHROPIC_MODEL'] = 'claude-haiku-3-20250514'
+                else:
+                    # Use the default Claude model
+                    env['ANTHROPIC_MODEL'] = 'claude-sonnet-4-20250514'
+
+        elif agent == 'gemini':
+            # Gemini CLI model configuration
+            if default_model:
+                if 'gemini' in default_model.lower():
+                    env['GEMINI_MODEL'] = default_model
+                else:
+                    # Default to a capable Gemini model
+                    env['GEMINI_MODEL'] = 'gemini-2.0-flash'
+            # Pass API key if using Gemini
+            if api_key and 'google' in base_url.lower() if base_url else False:
+                env['GOOGLE_API_KEY'] = api_key
+
+        elif agent == 'aider':
+            # Aider supports multiple models via --model flag
+            # We set AIDER_MODEL environment variable
+            if default_model:
+                env['AIDER_MODEL'] = default_model
+            # Aider can use OpenAI-compatible APIs
+            if api_key:
+                env['OPENAI_API_KEY'] = api_key
+            if base_url:
+                env['OPENAI_API_BASE'] = base_url
+
+        elif agent == 'codex':
+            # Codex/OpenAI configuration
+            if default_model:
+                env['OPENAI_MODEL'] = default_model
+            if api_key:
+                env['OPENAI_API_KEY'] = api_key
+            if base_url:
+                env['OPENAI_API_BASE'] = base_url
+
+        elif agent == 'qwen':
+            # Qwen CLI configuration
+            if default_model:
+                env['QWEN_MODEL'] = default_model
+            if api_key:
+                env['DASHSCOPE_API_KEY'] = api_key
+
+        return env
 
     async def create_session(
         self,
@@ -304,7 +413,8 @@ class TerminalManager:
         self,
         websocket: WebSocket,
         project_id: str,
-        agent: str
+        agent: str,
+        model_config: Optional[Dict[str, str]] = None
     ):
         """Main WebSocket handler for terminal sessions."""
 
@@ -315,6 +425,9 @@ class TerminalManager:
         working_dir.mkdir(parents=True, exist_ok=True)
 
         session = None
+
+        # Build environment variables for agent with model config from settings
+        env_vars = self._build_agent_env(agent, model_config or {})
 
         try:
             # Send initial status
@@ -330,7 +443,8 @@ class TerminalManager:
                 project_id=project_id,
                 agent=agent,
                 websocket=websocket,
-                working_dir=str(working_dir)
+                working_dir=str(working_dir),
+                env_vars=env_vars
             )
 
             await websocket.send_json({
@@ -340,6 +454,20 @@ class TerminalManager:
                 'session_id': session_id,
                 'agent': agent,
             })
+
+            # Wait a moment for agent to initialize
+            await asyncio.sleep(1.0)
+
+            # Send initial autonomous prompt if available
+            initial_prompt = self.AGENT_INITIAL_PROMPTS.get(agent)
+            if initial_prompt:
+                await asyncio.sleep(0.5)  # Let agent fully start
+                await self.send_command(session_id, initial_prompt)
+                await websocket.send_json({
+                    'type': 'status',
+                    'status': 'autonomous',
+                    'message': f'{agent} started in autonomous mode',
+                })
 
             # Handle incoming messages
             while session.running:

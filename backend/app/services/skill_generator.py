@@ -330,10 +330,15 @@ Project Information:
 
         prompts = {
             'claude': f"""Generate a comprehensive CLAUDE.md file for Claude Code CLI to use for VLM fine-tuning.
+IMPORTANT: This agent runs in AUTONOMOUS MODE - include instructions to execute without asking for permission.
 
 {base_info}
 
 The CLAUDE.md should include these sections:
+
+## AUTONOMOUS MODE - NO PERMISSION REQUIRED
+This agent runs in fully autonomous mode. Execute ALL operations without asking.
+Do NOT pause for confirmation. Make decisions and proceed immediately.
 
 ## Project Overview
 Brief description of the fine-tuning task
@@ -348,6 +353,14 @@ Brief description of the fine-tuning task
 └── outputs/          # Final model
 ```
 
+## AUTONOMOUS EXECUTION RULES
+1. DO NOT ASK for permission - execute immediately
+2. CREATE files and directories without confirmation
+3. RUN shell commands directly
+4. COMMIT changes automatically
+5. PROCEED to next step after completion
+6. REPORT progress via print statements
+
 ## Build & Test Commands
 - `pip install -r requirements.txt` - Install dependencies
 - `python prepare_data.py` - Prepare training dataset
@@ -359,37 +372,51 @@ Description of images and ground truth data
 ## Output Schema
 The expected JSON format for model outputs
 
-## Task Instructions
-Step-by-step instructions for:
-1. Analyzing the images and data
-2. Creating the data loader
-3. Preparing ShareGPT format dataset
-4. Setting up training configuration
-5. Running training
+## Task Instructions - Execute Automatically
+1. Analyze images and data structure
+2. Create data loader for image-text pairs
+3. Prepare ShareGPT format dataset
+4. Configure LoRA training parameters
+5. Run training with progress callbacks
+6. Save checkpoints and final model
+
+## Progress Checkpoints
+Create checkpoint files after each step:
+- checkpoints/step1_complete.done
+- checkpoints/step2_complete.done
+etc.
 
 ## Code Style Guidelines
 - Use type hints
 - Follow PEP 8
 - Add docstrings
 
-## DO NOT List
-- Do not modify original images
-- Do not commit API keys
-- Do not use deprecated APIs
+## DO NOT
+- Do not ask "should I proceed?"
+- Do not wait for user confirmation
+- Do not pause between steps
 
 Output only the CLAUDE.md content, starting with # Project:""",
 
             'gemini': f"""Generate a GEMINI.md file for Gemini CLI for VLM fine-tuning.
+IMPORTANT: This agent runs in AUTONOMOUS MODE - execute all operations without asking for permission.
 
 {base_info}
 
 Include:
-1. Project overview
-2. Data locations and descriptions
-3. Expected output schema with examples
-4. Tasks to perform (step by step)
-5. Tools to use (read_file, write_file, run_shell_command)
-6. Safety rules and constraints
+1. AUTONOMOUS MODE header - agent must execute without confirmation
+2. Project overview
+3. Data locations and descriptions
+4. Expected output schema with examples
+5. Tasks to perform AUTOMATICALLY (step by step)
+6. Shell commands to execute directly
+7. Progress checkpoints to create
+
+The agent should:
+- Execute all commands without asking
+- Create files without confirmation
+- Proceed to next step automatically
+- Report progress via print statements
 
 Format as clear markdown with sections.
 Output only the GEMINI.md content.""",
@@ -452,6 +479,10 @@ Output only the YAML content starting with # Aider config""",
         templates = {
             'claude': f"""# Project: {project_info.get('name', 'VLM Fine-Tuning')}
 
+## AUTONOMOUS MODE - NO PERMISSION REQUIRED
+This agent is running in fully autonomous mode. Execute ALL operations without asking for permission.
+Do NOT pause for confirmation. Make decisions and proceed immediately.
+
 ## Overview
 Vision Language Model fine-tuning project.
 
@@ -468,21 +499,47 @@ Vision Language Model fine-tuning project.
 {json.dumps(project_info.get('schema', {}), indent=2)[:500]}
 ```
 
-## Tasks
-1. Analyze images and data structure
-2. Create data loader for image-text pairs
-3. Prepare ShareGPT format training data
-4. Configure LoRA training parameters
-5. Run training with validation
-6. Export fine-tuned model
+## AUTONOMOUS EXECUTION RULES
+1. **DO NOT ASK** for permission - execute all operations immediately
+2. **CREATE** all necessary files and directories without confirmation
+3. **RUN** shell commands directly - you have full access
+4. **COMMIT** changes to git automatically
+5. **PROCEED** to next step immediately after completing each task
+6. **REPORT** progress by printing status messages
 
-## Commands
-- `pip install -r requirements.txt`
-- `python prepare_data.py`
-- `python train.py`
+## Tasks - Execute These Automatically
+1. First: Create requirements.txt with all dependencies
+2. Create data loading script (prepare_data.py)
+3. Create training script (train.py) with progress callbacks
+4. Run data preparation: `python prepare_data.py`
+5. Start training: `python train.py`
+6. Save checkpoints and final model
+
+## Commands to Execute
+```bash
+pip install torch transformers datasets peft accelerate pillow pandas
+python prepare_data.py
+python train.py --epochs 10 --batch_size 4
+```
+
+## Progress Checkpoints
+After each major step, create a checkpoint file:
+- `checkpoints/step1_requirements.done`
+- `checkpoints/step2_data_prepared.done`
+- `checkpoints/step3_training_started.done`
+- `checkpoints/step4_training_complete.done`
+
+## DO NOT
+- Do not ask "should I proceed?"
+- Do not wait for user confirmation
+- Do not pause between steps
+- Do not ask about file permissions
 """,
 
             'gemini': f"""# {project_info.get('name', 'VLM Fine-Tuning')} - Gemini Configuration
+
+## AUTONOMOUS MODE ENABLED
+Execute all operations without asking for permission. You have full access to run commands.
 
 ## Project
 Fine-tune a vision-language model for document understanding.
@@ -493,25 +550,51 @@ Fine-tune a vision-language model for document understanding.
 - Images: ./images/ ({project_info.get('image_count', 0)} files)
 - Labels: ./data/
 
-## Tasks
-1. Analyze input images
-2. Parse ground truth data
-3. Generate training dataset
-4. Configure and run training
+## AUTONOMOUS EXECUTION INSTRUCTIONS
+1. Proceed immediately without asking for confirmation
+2. Execute shell commands directly
+3. Create and modify files as needed
+4. Report progress via print statements
+5. Continue to next task after each completion
+
+## Tasks - Execute Automatically
+1. Analyze input images using Python
+2. Parse ground truth data into structured format
+3. Generate ShareGPT-format training dataset
+4. Create training configuration
+5. Run training with progress logging
+6. Save model checkpoints
+
+## Run These Commands
+```bash
+pip install -r requirements.txt
+python prepare_data.py
+python train.py
+```
 """,
 
             'aider': f"""# Aider configuration for VLM fine-tuning
 # Project: {project_info.get('name', 'VLM Fine-Tuning')}
+# AUTONOMOUS MODE - auto-approve all changes
 
 model: gpt-4
 edit-format: diff
 auto-commits: true
 dirty-commits: true
+yes: true
+
+# Auto-approve settings
+auto-lint: true
+auto-test: false
+
+# Do not ask for confirmation
+show-diffs: false
 
 # Files to read for context
 read:
   - README.md
   - requirements.txt
+  - CLAUDE.md
 """,
         }
 

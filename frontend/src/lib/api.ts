@@ -271,6 +271,28 @@ export async function generateSkills(
   return data.skills;
 }
 
+// Generate skills using the global settings (unified provider)
+export async function generateSkillsWithSettings(
+  projectInfo: Record<string, unknown>,
+  agentTypes?: string[]
+): Promise<GeneratedSkill[]> {
+  // First get the settings
+  const settings = await getSettings();
+
+  // Configure the skill generator with global settings
+  if (settings.openai?.base_url && settings.openai?.api_key) {
+    await configureSkillGenerator({
+      base_url: settings.openai.base_url,
+      api_key: settings.openai.api_key,
+      model: settings.openai.model || 'gpt-4o',
+      temperature: 0.7,
+    });
+  }
+
+  // Now generate skills
+  return generateSkills(projectInfo, agentTypes);
+}
+
 export async function generateProjectSkills(projectId: string, agentTypes?: string[]): Promise<string[]> {
   const params = agentTypes ? `?agent_types=${agentTypes.join(',')}` : '';
   const response = await fetch(`${API_BASE}/projects/${projectId}/skills/generate${params}`, {

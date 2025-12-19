@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { searchModels, getModelDetails, downloadModel, getCachedModels, type ModelSearchResult } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
-import { Button, Input, Badge, ProgressBar } from '@/components/bauhaus'
+import { Button, Badge } from '@/components/bauhaus'
 import { formatNumber } from '@/lib/utils'
 import {
   Search,
@@ -14,9 +15,10 @@ import {
   HardDrive,
   ChevronLeft,
   ChevronRight,
-  Filter,
   Check,
   ExternalLink,
+  Home,
+  FolderPlus,
 } from 'lucide-react'
 
 export default function HuggingFaceBrowser() {
@@ -42,7 +44,7 @@ export default function HuggingFaceBrowser() {
     enabled: searchQuery.length > 0,
   })
 
-  const { data: modelDetails, isLoading: loadingDetails } = useQuery({
+  const { data: modelDetails } = useQuery({
     queryKey: ['model-details', selectedModel],
     queryFn: () => getModelDetails(selectedModel!),
     enabled: !!selectedModel,
@@ -69,6 +71,22 @@ export default function HuggingFaceBrowser() {
 
   return (
     <div className="min-h-screen">
+      {/* Navigation Bar */}
+      <div className="bg-white border-b border-bauhaus-silver px-8 py-4">
+        <div className="flex items-center justify-between">
+          <Link to="/home" className="flex items-center gap-2 text-bauhaus-gray hover:text-bauhaus-black transition">
+            <Home className="w-5 h-5" />
+            <span className="font-medium">Home</span>
+          </Link>
+          <Link to="/new">
+            <Button variant="red" size="sm">
+              <FolderPlus className="w-4 h-4 mr-1" />
+              New Project
+            </Button>
+          </Link>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="page-header">
         <h1 className="page-title">HuggingFace Model Browser</h1>
@@ -169,7 +187,7 @@ export default function HuggingFaceBrowser() {
                     }
                     cached={cachedModels?.some(
                       (c) => c.name === model.model_id.replace('/', '--')
-                    )}
+                    ) || false}
                   />
                 ))}
 

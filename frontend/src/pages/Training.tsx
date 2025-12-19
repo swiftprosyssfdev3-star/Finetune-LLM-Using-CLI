@@ -1,15 +1,12 @@
-import { useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getProject } from '@/lib/api'
 import { BauhausTerminal } from '@/components/terminal'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
-import { Button, Badge, ProgressBar, AgentBadge } from '@/components/bauhaus'
-import { getAgentLabel, getAgentColor } from '@/lib/utils'
+import { Button, Badge, ProgressBar } from '@/components/bauhaus'
+import { getAgentColor } from '@/lib/utils'
 import {
   Play,
-  Pause,
-  Square,
   Terminal,
   Cpu,
   Activity,
@@ -30,8 +27,18 @@ type AgentId = typeof AGENTS[number]['id']
 
 export default function Training() {
   const { projectId } = useParams<{ projectId: string }>()
+  const [searchParams] = useSearchParams()
+  const agentFromUrl = searchParams.get('agent') as AgentId | null
+
   const [selectedAgent, setSelectedAgent] = useState<AgentId | null>(null)
   const [isTraining, setIsTraining] = useState(false)
+
+  // Set agent from URL on mount
+  useEffect(() => {
+    if (agentFromUrl && AGENTS.some(a => a.id === agentFromUrl)) {
+      setSelectedAgent(agentFromUrl)
+    }
+  }, [agentFromUrl])
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],

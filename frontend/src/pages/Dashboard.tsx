@@ -1,14 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { listProjects, getStatus } from '@/lib/api'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
+import { Card, CardContent } from '@/components/bauhaus'
 import { Button, Badge } from '@/components/bauhaus'
 import { formatTimeAgo } from '@/lib/utils'
 import {
   FolderOpen,
   Plus,
   Box,
-  HardDrive,
   Activity,
   ArrowRight,
 } from 'lucide-react'
