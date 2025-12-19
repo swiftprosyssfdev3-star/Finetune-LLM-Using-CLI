@@ -245,6 +245,11 @@ export async function getSkillPresets(): Promise<Record<string, { name: string; 
   return data.presets;
 }
 
+export async function getSkillGeneratorStatus(): Promise<{ configured: boolean; model?: string; base_url?: string }> {
+  const response = await fetch(`${API_BASE}/skills/status`);
+  return response.json();
+}
+
 export async function configureSkillGenerator(config: SkillConfig): Promise<void> {
   await fetch(`${API_BASE}/skills/configure`, {
     method: 'POST',

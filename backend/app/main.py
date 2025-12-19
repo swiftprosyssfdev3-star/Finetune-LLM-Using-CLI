@@ -492,6 +492,18 @@ async def get_skill_presets():
     return {"presets": PROVIDER_PRESETS}
 
 
+@app.get("/api/skills/status")
+async def get_skill_generator_status():
+    """Check if skill generator is configured."""
+    if skill_generator.config:
+        return {
+            "configured": True,
+            "model": skill_generator.config.model,
+            "base_url": skill_generator.config.base_url,
+        }
+    return {"configured": False}
+
+
 @app.post("/api/skills/configure")
 async def configure_skill_generator(config: Dict[str, Any]):
     """Configure the skill generator API."""
@@ -697,6 +709,25 @@ async def startup():
     print("Bauhaus Fine-Tuning Studio starting...")
     print(f"Projects directory: {PROJECTS_DIR.absolute()}")
     print(f"Models cache: {MODELS_DIR.absolute()}")
+
+    # Load settings and configure skill generator if available
+    try:
+        settings = load_settings()
+        if 'openai' in settings:
+            openai_config = settings.get('openai', {})
+            if openai_config.get('base_url') and openai_config.get('api_key'):
+                skill_generator.configure(SkillGeneratorConfig(
+                    base_url=openai_config['base_url'],
+                    api_key=openai_config['api_key'],
+                    model=openai_config.get('model', 'gpt-4o'),
+                ))
+                print(f"Skill generator configured with model: {openai_config.get('model', 'gpt-4o')}")
+
+        if 'huggingface' in settings and settings['huggingface'].get('token'):
+            os.environ['HF_TOKEN'] = settings['huggingface']['token']
+            print("HuggingFace token loaded from settings")
+    except Exception as e:
+        print(f"Warning: Could not load settings on startup: {e}")
 
 
 if __name__ == "__main__":

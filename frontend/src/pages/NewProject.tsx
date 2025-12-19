@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
-import { createProject, uploadFiles, type DetectionResult } from '@/lib/api'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { createProject, uploadFiles, updateProject, searchModels, type DetectionResult, type ModelSearchResult } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
 import { Button, Input, Badge } from '@/components/bauhaus'
 import { cn, formatBytes } from '@/lib/utils'
@@ -15,18 +15,34 @@ import {
   Lightbulb,
   ArrowRight,
   FolderPlus,
+  Box,
+  Search,
+  Download,
+  Cpu,
 } from 'lucide-react'
 
 export default function NewProject() {
   const navigate = useNavigate()
 
-  const [step, setStep] = useState<'info' | 'upload' | 'review'>('info')
+  const [step, setStep] = useState<'info' | 'upload' | 'model' | 'review'>('info')
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [detection, setDetection] = useState<DetectionResult | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
+
+  // Model selection state
+  const [selectedModel, setSelectedModel] = useState<ModelSearchResult | null>(null)
+  const [modelSearchQuery, setModelSearchQuery] = useState('Qwen VL')
+  const [customModelId, setCustomModelId] = useState('')
+
+  // Model search query
+  const { data: modelResults, isLoading: isSearching, refetch: searchModelsRefetch } = useQuery({
+    queryKey: ['model-search', modelSearchQuery],
+    queryFn: () => searchModels({ query: modelSearchQuery, vlm_only: true, limit: 12 }),
+    enabled: step === 'model' && modelSearchQuery.length > 0,
+  })
 
   const createMutation = useMutation({
     mutationFn: () => createProject(projectName, projectDescription),
@@ -40,6 +56,13 @@ export default function NewProject() {
     mutationFn: (files: File[]) => uploadFiles(projectId!, files),
     onSuccess: (data) => {
       setDetection(data)
+      setStep('model') // Go to model selection instead of review
+    },
+  })
+
+  const updateModelMutation = useMutation({
+    mutationFn: (modelId: string) => updateProject(projectId!, { model_id: modelId }),
+    onSuccess: () => {
       setStep('review')
     },
   })
@@ -77,6 +100,18 @@ export default function NewProject() {
     navigate(`/project/${projectId}`)
   }
 
+  const handleSelectModel = (model: ModelSearchResult) => {
+    setSelectedModel(model)
+    setCustomModelId('')
+  }
+
+  const handleModelContinue = () => {
+    const modelId = selectedModel?.model_id || customModelId
+    if (modelId && projectId) {
+      updateModelMutation.mutate(modelId)
+    }
+  }
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -88,12 +123,12 @@ export default function NewProject() {
       <div className="p-8 max-w-4xl mx-auto">
         {/* Progress Steps */}
         <div className="flex items-center justify-center mb-12">
-          {['Project Info', 'Upload Data', 'Review'].map((label, index) => {
-            const stepNames = ['info', 'upload', 'review'] as const
+          {['Project Info', 'Upload Data', 'Select Model', 'Review'].map((label, index) => {
+            const stepNames = ['info', 'upload', 'model', 'review'] as const
             const isActive = stepNames[index] === step
             const isCompleted =
               stepNames.indexOf(step) > index ||
-              (step === 'review' && index === 2)
+              (step === 'review' && index === 3)
 
             return (
               <div key={label} className="flex items-center">
@@ -121,10 +156,10 @@ export default function NewProject() {
                 >
                   {label}
                 </span>
-                {index < 2 && (
+                {index < 3 && (
                   <div
                     className={cn(
-                      'w-16 h-0.5 mx-4',
+                      'w-12 h-0.5 mx-3',
                       isCompleted ? 'bg-bauhaus-black' : 'bg-bauhaus-silver'
                     )}
                   />
@@ -272,7 +307,139 @@ export default function NewProject() {
           </Card>
         )}
 
-        {/* Step 3: Review */}
+        {/* Step 3: Select Model */}
+        {step === 'model' && (
+          <Card variant="blue">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Box className="w-5 h-5" />
+                Select Base Model
+              </CardTitle>
+              <CardDescription>
+                Choose the Vision Language Model to fine-tune
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Search */}
+              <div className="flex gap-3">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bauhaus-gray" />
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-4 py-3 border-2 border-bauhaus-charcoal bg-white focus:outline-none focus:border-bauhaus-blue transition-colors"
+                    placeholder="Search HuggingFace models..."
+                    value={modelSearchQuery}
+                    onChange={(e) => setModelSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        searchModelsRefetch()
+                      }
+                    }}
+                  />
+                </div>
+                <Button
+                  variant="blue"
+                  onClick={() => searchModelsRefetch()}
+                  loading={isSearching}
+                >
+                  Search
+                </Button>
+              </div>
+
+              {/* Popular Models */}
+              <div>
+                <h4 className="font-medium text-sm text-bauhaus-gray mb-3">
+                  {modelResults?.models?.length ? 'Search Results' : 'Popular VLM Models'}
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(modelResults?.models || [
+                    { model_id: 'Qwen/Qwen2.5-VL-2B-Instruct', model_name: 'Qwen2.5-VL-2B-Instruct', author: 'Qwen', downloads: 50000, is_vlm: true, size_gb: 4.5, tags: ['vision', 'language'] },
+                    { model_id: 'Qwen/Qwen2.5-VL-7B-Instruct', model_name: 'Qwen2.5-VL-7B-Instruct', author: 'Qwen', downloads: 35000, is_vlm: true, size_gb: 15, tags: ['vision', 'language'] },
+                    { model_id: 'microsoft/Florence-2-base', model_name: 'Florence-2-base', author: 'microsoft', downloads: 25000, is_vlm: true, size_gb: 0.5, tags: ['vision', 'ocr'] },
+                    { model_id: 'llava-hf/llava-1.5-7b-hf', model_name: 'llava-1.5-7b-hf', author: 'llava-hf', downloads: 20000, is_vlm: true, size_gb: 14, tags: ['vision', 'language'] },
+                  ] as ModelSearchResult[]).slice(0, 6).map((model) => (
+                    <button
+                      key={model.model_id}
+                      onClick={() => handleSelectModel(model)}
+                      className={cn(
+                        'p-4 border-2 text-left transition-all',
+                        selectedModel?.model_id === model.model_id
+                          ? 'border-bauhaus-blue bg-bauhaus-blue/5'
+                          : 'border-bauhaus-silver hover:border-bauhaus-charcoal'
+                      )}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{model.model_name}</div>
+                          <div className="text-sm text-bauhaus-gray">{model.author}</div>
+                        </div>
+                        {selectedModel?.model_id === model.model_id && (
+                          <CheckCircle className="w-5 h-5 text-bauhaus-blue flex-shrink-0" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-2 text-xs text-bauhaus-gray">
+                        <span className="flex items-center gap-1">
+                          <Download className="w-3 h-3" />
+                          {(model.downloads / 1000).toFixed(0)}k
+                        </span>
+                        {model.size_gb && (
+                          <span className="flex items-center gap-1">
+                            <Cpu className="w-3 h-3" />
+                            {model.size_gb.toFixed(1)} GB
+                          </span>
+                        )}
+                        {model.is_vlm && (
+                          <Badge variant="blue" className="text-xs py-0">VLM</Badge>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Model ID */}
+              <div className="border-t-2 border-bauhaus-silver pt-6">
+                <h4 className="font-medium text-sm mb-3">Or enter a custom model ID</h4>
+                <Input
+                  placeholder="e.g., organization/model-name"
+                  value={customModelId}
+                  onChange={(e) => {
+                    setCustomModelId(e.target.value)
+                    setSelectedModel(null)
+                  }}
+                />
+              </div>
+
+              {/* Selected Model Summary */}
+              {(selectedModel || customModelId) && (
+                <div className="bg-bauhaus-light p-4">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-terminal-green" />
+                    <span className="font-medium">Selected Model:</span>
+                    <span className="font-mono">{selectedModel?.model_id || customModelId}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-4">
+                <Button variant="outline" onClick={() => setStep('upload')}>
+                  Back
+                </Button>
+                <Button
+                  variant="blue"
+                  onClick={handleModelContinue}
+                  disabled={(!selectedModel && !customModelId) || updateModelMutation.isPending}
+                  loading={updateModelMutation.isPending}
+                >
+                  Continue
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 4: Review */}
         {step === 'review' && detection && (
           <div className="space-y-6">
             <Card variant="yellow">
@@ -390,8 +557,23 @@ export default function NewProject() {
               </CardContent>
             </Card>
 
+            {/* Selected Model Display */}
+            {(selectedModel || customModelId) && (
+              <Card>
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <Box className="w-5 h-5 text-bauhaus-blue" />
+                    <div>
+                      <div className="text-sm text-bauhaus-gray">Selected Model</div>
+                      <div className="font-mono font-medium">{selectedModel?.model_id || customModelId}</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <div className="flex justify-end gap-4">
-              <Button variant="outline" onClick={() => setStep('upload')}>
+              <Button variant="outline" onClick={() => setStep('model')}>
                 Back
               </Button>
               <Button variant="red" onClick={handleContinue}>
