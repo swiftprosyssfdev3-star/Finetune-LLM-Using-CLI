@@ -7,16 +7,14 @@ import {
   generateSkills,
 } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
-import { Button, Input, Badge } from '@/components/bauhaus'
+import { Button, Input } from '@/components/bauhaus'
 import {
   Settings,
   CheckCircle,
   XCircle,
   Sparkles,
   Eye,
-  Download,
   Copy,
-  ExternalLink,
 } from 'lucide-react'
 
 const PRESET_INFO: Record<string, { icon: string; color: string }> = {

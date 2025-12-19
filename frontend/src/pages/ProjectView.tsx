@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getProject,
@@ -15,7 +15,7 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/bauhaus'
-import { Button, Badge, Input, ProgressBar } from '@/components/bauhaus'
+import { Button, Badge, Input } from '@/components/bauhaus'
 import { formatDate } from '@/lib/utils'
 import {
   FolderOpen,
@@ -32,7 +32,6 @@ import {
 
 export default function ProjectView() {
   const { projectId } = useParams<{ projectId: string }>()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [modelId, setModelId] = useState('')

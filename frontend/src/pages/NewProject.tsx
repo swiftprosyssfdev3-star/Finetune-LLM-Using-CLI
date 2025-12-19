@@ -1,7 +1,14 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
-import { createProject, uploadFiles, type DetectionResult } from '@/lib/api'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import {
+  createProject,
+  uploadFiles,
+  getSettings,
+  generateSkillsWithSettings,
+  type DetectionResult,
+  type GeneratedSkill,
+} from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
 import { Button, Input, Badge } from '@/components/bauhaus'
 import { cn, formatBytes } from '@/lib/utils'
@@ -11,23 +18,84 @@ import {
   FileSpreadsheet,
   FileJson,
   CheckCircle,
-  AlertCircle,
-  Lightbulb,
   ArrowRight,
-  FolderPlus,
+  ArrowLeft,
+  Terminal,
+  Sparkles,
+  Play,
 } from 'lucide-react'
+
+type Step = 'info' | 'upload' | 'cli' | 'skills' | 'ready'
+
+const CLI_AGENTS = [
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    description: 'Anthropic\'s AI coding assistant with autonomous execution',
+    icon: '🟠',
+    color: 'bg-agent-claude',
+    features: ['Autonomous research', 'Code generation', 'File operations'],
+  },
+  {
+    id: 'gemini',
+    name: 'Gemini CLI',
+    description: 'Google\'s AI with 1M context window',
+    icon: '🔵',
+    color: 'bg-bauhaus-blue',
+    features: ['Large context', 'Multi-modal', 'Code analysis'],
+  },
+  {
+    id: 'aider',
+    name: 'Aider',
+    description: 'Open source pair programming assistant',
+    icon: '🟢',
+    color: 'bg-terminal-green',
+    features: ['Git integration', 'Code refactoring', 'Test generation'],
+  },
+] as const
+
+type CliAgent = typeof CLI_AGENTS[number]['id']
+
+interface SkillVariation {
+  id: string
+  name: string
+  description: string
+  skills: GeneratedSkill[]
+  focus: 'speed' | 'quality' | 'balanced'
+}
 
 export default function NewProject() {
   const navigate = useNavigate()
 
-  const [step, setStep] = useState<'info' | 'upload' | 'review'>('info')
+  // Core state
+  const [step, setStep] = useState<Step>('info')
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [detection, setDetection] = useState<DetectionResult | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
 
+  // File upload state
+  const [isDragging, setIsDragging] = useState(false)
+  const [imageFiles, setImageFiles] = useState<File[]>([])
+  const [groundTruthFiles, setGroundTruthFiles] = useState<File[]>([])
+
+  // CLI and skills state
+  const [selectedCli, setSelectedCli] = useState<CliAgent | null>(null)
+  const [skillVariations, setSkillVariations] = useState<SkillVariation[]>([])
+  const [selectedVariation, setSelectedVariation] = useState<string | null>(null)
+
+  // Check if API is configured
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+  })
+
+  const hasApiConfigured = !!(
+    settings?.openai?.base_url &&
+    settings?.openai?.api_key
+  )
+
+  // Mutations
   const createMutation = useMutation({
     mutationFn: () => createProject(projectName, projectDescription),
     onSuccess: (data) => {
@@ -40,10 +108,64 @@ export default function NewProject() {
     mutationFn: (files: File[]) => uploadFiles(projectId!, files),
     onSuccess: (data) => {
       setDetection(data)
-      setStep('review')
+      setStep('cli')
     },
   })
 
+  const generateSkillsMutation = useMutation({
+    mutationFn: () => {
+      const projectInfo = {
+        name: projectName,
+        model_id: 'Qwen/Qwen2.5-VL-2B-Instruct',
+        method: settings?.training?.method || 'LoRA',
+        image_count: detection?.images?.count || 0,
+        data_rows: detection?.data?.row_count || 0,
+        schema: detection?.schema?.schema || {},
+        cli_agent: selectedCli,
+      }
+      // Use the unified settings for skill generation
+      return generateSkillsWithSettings(projectInfo, [selectedCli!])
+    },
+    onSuccess: (skills) => {
+      // Generate 3 variations based on the skills
+      const variations: SkillVariation[] = [
+        {
+          id: 'speed',
+          name: 'Speed Optimized',
+          description: 'Prioritizes quick iterations with smaller batch sizes',
+          skills: skills.map((s) => ({
+            ...s,
+            content: s.content.replace(/batch_size: \d+/, 'batch_size: 2')
+              .replace(/epochs: \d+/, 'epochs: 5'),
+          })),
+          focus: 'speed',
+        },
+        {
+          id: 'balanced',
+          name: 'Balanced',
+          description: 'Recommended settings for most use cases',
+          skills,
+          focus: 'balanced',
+        },
+        {
+          id: 'quality',
+          name: 'Quality Focused',
+          description: 'Higher epochs and larger batches for better results',
+          skills: skills.map((s) => ({
+            ...s,
+            content: s.content.replace(/batch_size: \d+/, 'batch_size: 8')
+              .replace(/epochs: \d+/, 'epochs: 15'),
+          })),
+          focus: 'quality',
+        },
+      ]
+      setSkillVariations(variations)
+      setSelectedVariation('balanced')
+      setStep('skills')
+    },
+  })
+
+  // Handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(true)
@@ -54,46 +176,91 @@ export default function NewProject() {
     setIsDragging(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleImageDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-
     const files = Array.from(e.dataTransfer.files)
-    setUploadedFiles((prev) => [...prev, ...files])
+    setImageFiles((prev) => [...prev, ...files])
   }, [])
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGroundTruthDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const files = Array.from(e.dataTransfer.files)
+    setGroundTruthFiles((prev) => [...prev, ...files])
+  }, [])
+
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
-    setUploadedFiles((prev) => [...prev, ...files])
+    setImageFiles((prev) => [...prev, ...files])
+  }, [])
+
+  const handleGroundTruthSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    setGroundTruthFiles((prev) => [...prev, ...files])
   }, [])
 
   const handleUpload = () => {
-    if (uploadedFiles.length > 0 && projectId) {
-      uploadMutation.mutate(uploadedFiles)
+    const allFiles = [...imageFiles, ...groundTruthFiles]
+    if (allFiles.length > 0 && projectId) {
+      uploadMutation.mutate(allFiles)
     }
   }
 
-  const handleContinue = () => {
-    navigate(`/project/${projectId}`)
+  const handleSelectCli = (cliId: CliAgent) => {
+    setSelectedCli(cliId)
+  }
+
+  const handleGenerateSkills = () => {
+    if (selectedCli && hasApiConfigured) {
+      generateSkillsMutation.mutate()
+    }
+  }
+
+  const handleStartTraining = () => {
+    if (projectId && selectedCli) {
+      navigate(`/project/${projectId}/train?agent=${selectedCli}`)
+    }
+  }
+
+  const getStepNumber = () => {
+    const steps: Step[] = ['info', 'upload', 'cli', 'skills', 'ready']
+    return steps.indexOf(step) + 1
+  }
+
+  const canProceed = () => {
+    switch (step) {
+      case 'info':
+        return projectName.length > 0
+      case 'upload':
+        return imageFiles.length > 0 || groundTruthFiles.length > 0
+      case 'cli':
+        return selectedCli !== null
+      case 'skills':
+        return selectedVariation !== null
+      default:
+        return true
+    }
   }
 
   return (
     <div className="min-h-screen">
       {/* Header */}
       <div className="page-header">
-        <h1 className="page-title">Create New Project</h1>
-        <p className="page-subtitle">Set up a new VLM fine-tuning project</p>
+        <h1 className="page-title">New Fine-Tuning Project</h1>
+        <p className="page-subtitle">
+          Set up your data, select a CLI agent, and start autonomous fine-tuning
+        </p>
       </div>
 
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-8 max-w-5xl mx-auto">
         {/* Progress Steps */}
         <div className="flex items-center justify-center mb-12">
-          {['Project Info', 'Upload Data', 'Review'].map((label, index) => {
-            const stepNames = ['info', 'upload', 'review'] as const
-            const isActive = stepNames[index] === step
-            const isCompleted =
-              stepNames.indexOf(step) > index ||
-              (step === 'review' && index === 2)
+          {['Project Info', 'Upload Data', 'Select CLI', 'Generate Skills', 'Ready'].map((label, index) => {
+            const stepNumber = index + 1
+            const currentStep = getStepNumber()
+            const isActive = stepNumber === currentStep
+            const isCompleted = stepNumber < currentStep
 
             return (
               <div key={label} className="flex items-center">
@@ -107,24 +274,24 @@ export default function NewProject() {
                       : 'bg-bauhaus-silver text-bauhaus-gray'
                   )}
                 >
-                  {isCompleted && index !== stepNames.indexOf(step) ? (
+                  {isCompleted ? (
                     <CheckCircle className="w-5 h-5" />
                   ) : (
-                    index + 1
+                    stepNumber
                   )}
                 </div>
                 <span
                   className={cn(
-                    'ml-3 font-medium',
+                    'ml-2 font-medium text-sm hidden md:inline',
                     isActive ? 'text-bauhaus-black' : 'text-bauhaus-gray'
                   )}
                 >
                   {label}
                 </span>
-                {index < 2 && (
+                {index < 4 && (
                   <div
                     className={cn(
-                      'w-16 h-0.5 mx-4',
+                      'w-8 md:w-12 h-0.5 mx-2',
                       isCompleted ? 'bg-bauhaus-black' : 'bg-bauhaus-silver'
                     )}
                   />
@@ -179,223 +346,419 @@ export default function NewProject() {
 
         {/* Step 2: Upload Data */}
         {step === 'upload' && (
-          <Card variant="blue">
-            <CardHeader>
-              <CardTitle>Upload Your Data</CardTitle>
-              <CardDescription>
-                Upload images and ground truth data - we'll detect the format automatically
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Dropzone */}
-              <div
-                className={cn(
-                  'dropzone',
-                  isDragging && 'dropzone-active'
-                )}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById('file-input')?.click()}
-              >
-                <input
-                  id="file-input"
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
-                <Upload className="w-12 h-12 mx-auto text-bauhaus-gray mb-4" />
-                <p className="text-lg font-medium text-bauhaus-charcoal mb-2">
-                  Drop files or folders here
-                </p>
-                <p className="text-bauhaus-gray">or click to browse</p>
-              </div>
-
-              {/* Supported formats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div className="flex items-center gap-2 text-bauhaus-gray">
-                  <ImageIcon className="w-4 h-4" />
-                  <span>.jpg .png .tiff .pdf</span>
-                </div>
-                <div className="flex items-center gap-2 text-bauhaus-gray">
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>.xlsx .csv .tsv</span>
-                </div>
-                <div className="flex items-center gap-2 text-bauhaus-gray">
-                  <FileJson className="w-4 h-4" />
-                  <span>.json .jsonl</span>
-                </div>
-                <div className="flex items-center gap-2 text-bauhaus-gray">
-                  <FolderPlus className="w-4 h-4" />
-                  <span>.zip .tar.gz</span>
-                </div>
-              </div>
-
-              {/* Uploaded files */}
-              {uploadedFiles.length > 0 && (
-                <div className="border-2 border-bauhaus-charcoal p-4">
-                  <h4 className="font-medium mb-3">
-                    Selected Files ({uploadedFiles.length})
-                  </h4>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {uploadedFiles.map((file, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between text-sm"
-                      >
-                        <span className="truncate">{file.name}</span>
-                        <span className="text-bauhaus-gray ml-2">
-                          {formatBytes(file.size)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-4">
-                <Button variant="outline" onClick={() => setStep('info')}>
-                  Back
-                </Button>
-                <Button
-                  variant="blue"
-                  onClick={handleUpload}
-                  disabled={uploadedFiles.length === 0 || uploadMutation.isPending}
-                  loading={uploadMutation.isPending}
-                >
-                  Upload & Analyze
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Step 3: Review */}
-        {step === 'review' && detection && (
           <div className="space-y-6">
-            <Card variant="yellow">
+            <Card variant="blue">
               <CardHeader>
-                <CardTitle>Auto-Detected Data</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <ImageIcon className="w-5 h-5" />
+                  Upload Images
+                </CardTitle>
                 <CardDescription>
-                  Review what we found in your uploaded files
+                  Upload your training images or image folders
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Images */}
-                {detection.images && (
+              <CardContent className="space-y-4">
+                <div
+                  className={cn(
+                    'dropzone',
+                    isDragging && 'dropzone-active'
+                  )}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleImageDrop}
+                  onClick={() => document.getElementById('image-input')?.click()}
+                >
+                  <input
+                    id="image-input"
+                    type="file"
+                    multiple
+                    accept="image/*,.zip,.tar.gz"
+                    className="hidden"
+                    onChange={handleImageSelect}
+                  />
+                  <Upload className="w-10 h-10 mx-auto text-bauhaus-gray mb-3" />
+                  <p className="text-bauhaus-charcoal font-medium">
+                    Drop images or folders here
+                  </p>
+                  <p className="text-sm text-bauhaus-gray">
+                    Supports: .jpg, .png, .tiff, .pdf, .zip, .tar.gz
+                  </p>
+                </div>
+
+                {imageFiles.length > 0 && (
                   <div className="border-2 border-bauhaus-charcoal p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <ImageIcon className="w-5 h-5 text-bauhaus-blue" />
-                      <h4 className="font-bold">Images Detected</h4>
-                      <Badge variant="blue">{detection.images.count} files</Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-bauhaus-gray">Formats:</span>
-                        <span className="ml-2">
-                          {detection.images.formats.join(', ')}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-bauhaus-gray">Total Size:</span>
-                        <span className="ml-2">
-                          {detection.images.total_size_mb.toFixed(1)} MB
-                        </span>
-                      </div>
-                      {detection.images.sample_dimensions && (
-                        <div>
-                          <span className="text-bauhaus-gray">Dimensions:</span>
-                          <span className="ml-2">
-                            {detection.images.sample_dimensions[0]} x{' '}
-                            {detection.images.sample_dimensions[1]}
-                          </span>
+                    <h4 className="font-medium mb-2">
+                      Images ({imageFiles.length})
+                    </h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto text-sm">
+                      {imageFiles.map((file, i) => (
+                        <div key={i} className="flex justify-between">
+                          <span className="truncate">{file.name}</span>
+                          <span className="text-bauhaus-gray">{formatBytes(file.size)}</span>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  </div>
-                )}
-
-                {/* Data */}
-                {detection.data && (
-                  <div className="border-2 border-bauhaus-charcoal p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <FileSpreadsheet className="w-5 h-5 text-terminal-green" />
-                      <h4 className="font-bold">Ground Truth Data</h4>
-                      <Badge variant="green">{detection.data.row_count} rows</Badge>
-                    </div>
-                    <div className="mb-3 text-sm">
-                      <span className="text-bauhaus-gray">File:</span>
-                      <span className="ml-2 font-mono">
-                        {detection.data.path.split('/').pop()}
-                      </span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-bauhaus-gray">Columns:</span>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {detection.data.columns.map((col) => (
-                          <Badge key={col} variant="gray">
-                            {col}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Schema */}
-                {detection.schema && (
-                  <div className="border-2 border-bauhaus-charcoal p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <FileJson className="w-5 h-5 text-bauhaus-yellow-dark" />
-                      <h4 className="font-bold">Output Schema</h4>
-                      <Badge variant="yellow">{detection.schema.source}</Badge>
-                    </div>
-                    <pre className="text-sm bg-bauhaus-light p-4 overflow-x-auto">
-                      {detection.schema.sample_output}
-                    </pre>
-                  </div>
-                )}
-
-                {/* Warnings */}
-                {detection.warnings.length > 0 && (
-                  <div className="space-y-2">
-                    {detection.warnings.map((warning, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-2 text-bauhaus-red text-sm"
-                      >
-                        <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        <span>{warning}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Suggestions */}
-                {detection.suggestions.length > 0 && (
-                  <div className="space-y-2">
-                    {detection.suggestions.map((suggestion, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-2 text-bauhaus-blue text-sm"
-                      >
-                        <Lightbulb className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        <span>{suggestion}</span>
-                      </div>
-                    ))}
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <div className="flex justify-end gap-4">
-              <Button variant="outline" onClick={() => setStep('upload')}>
+            <Card variant="yellow">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5" />
+                  Upload Ground Truth
+                </CardTitle>
+                <CardDescription>
+                  Upload your output/label file (CSV, Excel, JSON, etc.)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div
+                  className={cn(
+                    'dropzone',
+                    isDragging && 'dropzone-active'
+                  )}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleGroundTruthDrop}
+                  onClick={() => document.getElementById('gt-input')?.click()}
+                >
+                  <input
+                    id="gt-input"
+                    type="file"
+                    multiple
+                    accept=".csv,.xlsx,.xls,.json,.jsonl,.tsv"
+                    className="hidden"
+                    onChange={handleGroundTruthSelect}
+                  />
+                  <Upload className="w-10 h-10 mx-auto text-bauhaus-gray mb-3" />
+                  <p className="text-bauhaus-charcoal font-medium">
+                    Drop ground truth file here
+                  </p>
+                  <p className="text-sm text-bauhaus-gray">
+                    Supports: .xlsx, .csv, .tsv, .json, .jsonl
+                  </p>
+                </div>
+
+                {groundTruthFiles.length > 0 && (
+                  <div className="border-2 border-bauhaus-charcoal p-4">
+                    <h4 className="font-medium mb-2">
+                      Ground Truth ({groundTruthFiles.length})
+                    </h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto text-sm">
+                      {groundTruthFiles.map((file, i) => (
+                        <div key={i} className="flex justify-between">
+                          <span className="truncate">{file.name}</span>
+                          <span className="text-bauhaus-gray">{formatBytes(file.size)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep('info')}>
+                <ArrowLeft className="w-5 h-5 mr-2" />
                 Back
               </Button>
-              <Button variant="red" onClick={handleContinue}>
-                Continue to Project
+              <Button
+                variant="blue"
+                onClick={handleUpload}
+                disabled={!canProceed() || uploadMutation.isPending}
+                loading={uploadMutation.isPending}
+              >
+                Upload & Analyze
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Select CLI Agent */}
+        {step === 'cli' && (
+          <div className="space-y-6">
+            {/* Detection Summary */}
+            {detection && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4">
+                    {detection.images && (
+                      <div className="text-center p-4 bg-bauhaus-light">
+                        <ImageIcon className="w-8 h-8 mx-auto text-bauhaus-blue mb-2" />
+                        <div className="text-2xl font-bold">{detection.images.count}</div>
+                        <div className="text-sm text-bauhaus-gray">Images</div>
+                      </div>
+                    )}
+                    {detection.data && (
+                      <div className="text-center p-4 bg-bauhaus-light">
+                        <FileSpreadsheet className="w-8 h-8 mx-auto text-terminal-green mb-2" />
+                        <div className="text-2xl font-bold">{detection.data.row_count}</div>
+                        <div className="text-sm text-bauhaus-gray">Data Rows</div>
+                      </div>
+                    )}
+                    {detection.schema && (
+                      <div className="text-center p-4 bg-bauhaus-light">
+                        <FileJson className="w-8 h-8 mx-auto text-bauhaus-yellow-dark mb-2" />
+                        <div className="text-2xl font-bold">
+                          {Object.keys(detection.schema.schema).length}
+                        </div>
+                        <div className="text-sm text-bauhaus-gray">Schema Fields</div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card variant="red">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Terminal className="w-5 h-5" />
+                  Select CLI Agent
+                </CardTitle>
+                <CardDescription>
+                  Choose the AI agent that will handle your fine-tuning process
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {CLI_AGENTS.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={() => handleSelectCli(agent.id)}
+                      className={cn(
+                        'p-6 border-2 text-left transition-all',
+                        selectedCli === agent.id
+                          ? 'border-bauhaus-red bg-bauhaus-red/5'
+                          : 'border-bauhaus-silver hover:border-bauhaus-charcoal'
+                      )}
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-2xl">{agent.icon}</span>
+                        <div>
+                          <div className="font-bold text-bauhaus-black">
+                            {agent.name}
+                          </div>
+                          <div className="text-xs text-bauhaus-gray">
+                            {agent.description}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        {agent.features.map((feature) => (
+                          <div key={feature} className="flex items-center gap-2 text-sm text-bauhaus-charcoal">
+                            <CheckCircle className="w-3 h-3 text-terminal-green" />
+                            {feature}
+                          </div>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Generate Skills Button - appears directly after selection */}
+                {selectedCli && (
+                  <div className="mt-6 p-4 bg-bauhaus-light border-2 border-bauhaus-silver">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium text-bauhaus-black">
+                          Ready to Generate Skills
+                        </h4>
+                        <p className="text-sm text-bauhaus-gray">
+                          {hasApiConfigured
+                            ? `Create ${selectedCli.toUpperCase()} configuration with research and autonomous execution capabilities`
+                            : 'Configure API in Settings first to generate skills'}
+                        </p>
+                      </div>
+                      <Button
+                        variant="red"
+                        onClick={handleGenerateSkills}
+                        disabled={!hasApiConfigured || generateSkillsMutation.isPending}
+                        loading={generateSkillsMutation.isPending}
+                      >
+                        <Sparkles className="w-5 h-5 mr-2" />
+                        Generate Skills
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep('upload')}>
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Skill Variations */}
+        {step === 'skills' && (
+          <div className="space-y-6">
+            <Card variant="yellow">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5" />
+                  Select Configuration Variation
+                </CardTitle>
+                <CardDescription>
+                  Choose the setup that best fits your needs
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {skillVariations.map((variation) => (
+                    <button
+                      key={variation.id}
+                      onClick={() => setSelectedVariation(variation.id)}
+                      className={cn(
+                        'p-6 border-2 text-left transition-all',
+                        selectedVariation === variation.id
+                          ? 'border-bauhaus-yellow-dark bg-bauhaus-yellow/10'
+                          : 'border-bauhaus-silver hover:border-bauhaus-charcoal'
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="font-bold text-bauhaus-black">
+                          {variation.name}
+                        </div>
+                        {variation.focus === 'balanced' && (
+                          <Badge variant="green" size="sm">Recommended</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-bauhaus-gray mb-4">
+                        {variation.description}
+                      </p>
+                      <div className="text-xs text-bauhaus-charcoal">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            'w-2 h-2 rounded-full',
+                            variation.focus === 'speed' ? 'bg-terminal-green' :
+                            variation.focus === 'quality' ? 'bg-bauhaus-blue' :
+                            'bg-bauhaus-yellow-dark'
+                          )} />
+                          {variation.focus === 'speed' ? 'Fast iterations' :
+                           variation.focus === 'quality' ? 'High quality output' :
+                           'Best of both worlds'}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Preview selected variation */}
+                {selectedVariation && (
+                  <div className="mt-6">
+                    <h4 className="font-medium mb-3">Generated Files Preview</h4>
+                    <div className="bg-terminal-bg rounded-lg p-4 max-h-64 overflow-auto">
+                      <pre className="text-sm text-terminal-text font-mono">
+                        {skillVariations
+                          .find((v) => v.id === selectedVariation)
+                          ?.skills.map((s) => `# ${s.filename}\n${s.content.slice(0, 500)}...`)
+                          .join('\n\n')}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep('cli')}>
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back
+              </Button>
+              <Button
+                variant="yellow"
+                onClick={() => setStep('ready')}
+                disabled={!selectedVariation}
+              >
+                Save & Continue
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: Ready to Start */}
+        {step === 'ready' && (
+          <div className="space-y-6">
+            <Card variant="blue">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-terminal-green" />
+                  Project Ready
+                </CardTitle>
+                <CardDescription>
+                  Your project is configured and ready to start fine-tuning
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-bauhaus-light">
+                    <div className="text-sm text-bauhaus-gray">Project</div>
+                    <div className="font-bold text-bauhaus-black">{projectName}</div>
+                  </div>
+                  <div className="p-4 bg-bauhaus-light">
+                    <div className="text-sm text-bauhaus-gray">CLI Agent</div>
+                    <div className="font-bold text-bauhaus-black">
+                      {CLI_AGENTS.find((a) => a.id === selectedCli)?.name}
+                    </div>
+                  </div>
+                  {detection?.images && (
+                    <div className="p-4 bg-bauhaus-light">
+                      <div className="text-sm text-bauhaus-gray">Images</div>
+                      <div className="font-bold text-bauhaus-black">
+                        {detection.images.count} files
+                      </div>
+                    </div>
+                  )}
+                  {detection?.data && (
+                    <div className="p-4 bg-bauhaus-light">
+                      <div className="text-sm text-bauhaus-gray">Data Rows</div>
+                      <div className="font-bold text-bauhaus-black">
+                        {detection.data.row_count} rows
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 border-2 border-terminal-green bg-terminal-green/5">
+                  <div className="flex items-center gap-3">
+                    <Terminal className="w-8 h-8 text-terminal-green" />
+                    <div>
+                      <div className="font-bold text-bauhaus-black">
+                        Ready to Start Training
+                      </div>
+                      <p className="text-sm text-bauhaus-gray">
+                        Click below to open the terminal and start autonomous fine-tuning
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep('skills')}>
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back
+              </Button>
+              <Button
+                variant="red"
+                size="lg"
+                onClick={handleStartTraining}
+              >
+                <Play className="w-5 h-5 mr-2" />
+                Start Fine-Tuning
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </div>

@@ -20,7 +20,6 @@ import {
   RefreshCw,
   Sparkles,
   Database,
-  Palette,
   HardDrive,
   Zap,
   AlertCircle,
@@ -212,7 +211,8 @@ export default function Settings() {
                 OpenAI Compatible API
               </CardTitle>
               <CardDescription>
-                Configure a custom base URL for OpenAI-compatible endpoints (OpenAI, Ollama, vLLM, etc.)
+                Configure your API provider for skill generation and autonomous operations.
+                This is required before starting a new project.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
