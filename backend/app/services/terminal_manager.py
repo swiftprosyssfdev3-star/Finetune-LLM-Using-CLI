@@ -116,8 +116,29 @@ Commit changes as you go and keep working until complete.""",
         # Check if the command exists
         cmd = commands[0]
         if shutil.which(cmd) is None:
-            # Fallback to bash if agent not found
-            return ['bash', '-c', f'echo "Agent {agent} not found. Using bash shell." && bash']
+            # Provide more helpful message with installation instructions
+            install_hints = {
+                'claude': 'npm install -g @anthropic-ai/claude-code',
+                'gemini': 'npm install -g @anthropic-ai/gemini-cli',
+                'aider': 'pip install aider-chat',
+                'codex': 'npm install -g @openai/codex',
+                'qwen': 'pip install qwen-cli',
+            }
+            hint = install_hints.get(agent, f'Install the {agent} CLI')
+            # Fallback to bash with helpful message
+            return ['bash', '-c', f'''
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Agent '{agent}' is not installed"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "  To install, run:"
+echo "    {hint}"
+echo ""
+echo "  Starting bash shell instead..."
+echo ""
+exec bash
+''']
 
         return commands
 
@@ -453,21 +474,27 @@ Commit changes as you go and keep working until complete.""",
                 'running': True,
                 'session_id': session_id,
                 'agent': agent,
+                'model_config': {
+                    'model': model_config.get('default_model', 'Not configured'),
+                    'has_api_key': bool(model_config.get('api_key')),
+                },
             })
 
-            # Wait a moment for agent to initialize
-            await asyncio.sleep(1.0)
+            # Wait for agent to initialize - longer wait for complex agents
+            await asyncio.sleep(2.0)
 
-            # Send initial autonomous prompt if available
-            initial_prompt = self.AGENT_INITIAL_PROMPTS.get(agent)
-            if initial_prompt:
-                await asyncio.sleep(0.5)  # Let agent fully start
-                await self.send_command(session_id, initial_prompt)
-                await websocket.send_json({
-                    'type': 'status',
-                    'status': 'autonomous',
-                    'message': f'{agent} started in autonomous mode',
-                })
+            # Check if session is still running before sending prompt
+            if session and session.running:
+                # Send initial autonomous prompt if available
+                initial_prompt = self.AGENT_INITIAL_PROMPTS.get(agent)
+                if initial_prompt:
+                    await asyncio.sleep(1.0)  # Let agent fully start
+                    await self.send_command(session_id, initial_prompt)
+                    await websocket.send_json({
+                        'type': 'status',
+                        'status': 'autonomous',
+                        'message': f'{agent} started in autonomous mode',
+                    })
 
             # Handle incoming messages
             while session.running:

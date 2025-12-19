@@ -207,10 +207,18 @@ class SkillGeneratorService:
         skills = []
         for agent_type in agent_types:
             try:
-                skill = await self.generate_skill(project_info, agent_type)
-                skills.append(skill)
+                # Try to generate using API if configured
+                if self.config and self.config.api_key:
+                    skill = await self.generate_skill(project_info, agent_type)
+                    skills.append(skill)
+                else:
+                    # No API configured, use fallback templates
+                    print(f"[SkillGenerator] No API configured, using template for {agent_type}")
+                    skill = self._generate_fallback_skill(project_info, agent_type)
+                    skills.append(skill)
             except Exception as e:
-                # Generate fallback template
+                # Generate fallback template on API error
+                print(f"[SkillGenerator] API error for {agent_type}: {e}, using template")
                 skill = self._generate_fallback_skill(project_info, agent_type)
                 skills.append(skill)
 

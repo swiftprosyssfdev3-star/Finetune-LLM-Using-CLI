@@ -6,6 +6,7 @@ import {
   uploadFiles,
   getSettings,
   generateSkillsWithSettings,
+  updateProject,
   type DetectionResult,
   type GeneratedSkill,
 } from '@/lib/api'
@@ -25,6 +26,8 @@ import {
   Play,
   Home,
   Settings,
+  Cpu,
+  ChevronDown,
 } from 'lucide-react'
 
 type Step = 'info' | 'upload' | 'cli' | 'skills' | 'ready'
@@ -58,6 +61,52 @@ const CLI_AGENTS = [
 
 type CliAgent = typeof CLI_AGENTS[number]['id']
 
+// Popular VLM models for fine-tuning
+const VLM_MODELS = [
+  {
+    id: 'Qwen/Qwen2.5-VL-2B-Instruct',
+    name: 'Qwen2.5-VL-2B-Instruct',
+    description: 'Small, fast VLM good for quick experiments',
+    vram: '~6GB',
+  },
+  {
+    id: 'Qwen/Qwen2.5-VL-7B-Instruct',
+    name: 'Qwen2.5-VL-7B-Instruct',
+    description: 'Balanced performance and quality',
+    vram: '~16GB',
+  },
+  {
+    id: 'Qwen/Qwen2-VL-2B-Instruct',
+    name: 'Qwen2-VL-2B-Instruct',
+    description: 'Previous generation, well-tested',
+    vram: '~6GB',
+  },
+  {
+    id: 'Qwen/Qwen2-VL-7B-Instruct',
+    name: 'Qwen2-VL-7B-Instruct',
+    description: 'Previous generation, proven quality',
+    vram: '~16GB',
+  },
+  {
+    id: 'meta-llama/Llama-3.2-11B-Vision-Instruct',
+    name: 'Llama-3.2-11B-Vision',
+    description: 'Meta\'s vision-language model',
+    vram: '~24GB',
+  },
+  {
+    id: 'microsoft/Florence-2-large',
+    name: 'Florence-2-Large',
+    description: 'Microsoft\'s vision foundation model',
+    vram: '~8GB',
+  },
+  {
+    id: 'openbmb/MiniCPM-V-2_6',
+    name: 'MiniCPM-V-2.6',
+    description: 'Efficient vision-language model',
+    vram: '~8GB',
+  },
+] as const
+
 interface SkillVariation {
   id: string
   name: string
@@ -85,6 +134,11 @@ export default function NewProject() {
   const [selectedCli, setSelectedCli] = useState<CliAgent | null>(null)
   const [skillVariations, setSkillVariations] = useState<SkillVariation[]>([])
   const [selectedVariation, setSelectedVariation] = useState<string | null>(null)
+
+  // Model selection state
+  const [selectedModel, setSelectedModel] = useState<string>(VLM_MODELS[0].id)
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
 
   // Check if API is configured
   const { data: settings } = useQuery({
@@ -115,11 +169,21 @@ export default function NewProject() {
   })
 
   const generateSkillsMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      setIsGenerating(true)
+
+      // First, update the project with the selected model
+      if (projectId) {
+        await updateProject(projectId, {
+          model_id: selectedModel,
+          method: settings?.training?.method || 'lora',
+        })
+      }
+
       const projectInfo = {
         name: projectName,
-        model_id: 'Qwen/Qwen2.5-VL-2B-Instruct',
-        method: settings?.training?.method || 'LoRA',
+        model_id: selectedModel,
+        method: settings?.training?.method || 'lora',
         image_count: detection?.images?.count || 0,
         data_rows: detection?.data?.row_count || 0,
         schema: detection?.schema?.schema || {},
@@ -129,6 +193,7 @@ export default function NewProject() {
       return generateSkillsWithSettings(projectInfo, [selectedCli!])
     },
     onSuccess: (skills) => {
+      setIsGenerating(false)
       // Generate 3 variations based on the skills
       const variations: SkillVariation[] = [
         {
@@ -164,6 +229,9 @@ export default function NewProject() {
       setSkillVariations(variations)
       setSelectedVariation('balanced')
       setStep('skills')
+    },
+    onError: () => {
+      setIsGenerating(false)
     },
   })
 
@@ -578,9 +646,78 @@ export default function NewProject() {
                   ))}
                 </div>
 
-                {/* Generate Skills Button - appears directly after selection */}
+                {/* Model Selection - appears after CLI selection */}
                 {selectedCli && (
                   <div className="mt-6 p-4 bg-bauhaus-light border-2 border-bauhaus-silver">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Cpu className="w-5 h-5 text-bauhaus-blue" />
+                      <h4 className="font-medium text-bauhaus-black">
+                        Select Model to Fine-tune
+                      </h4>
+                    </div>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowModelDropdown(!showModelDropdown)}
+                        className="w-full p-3 border-2 border-bauhaus-charcoal bg-white text-left flex items-center justify-between"
+                      >
+                        <div>
+                          <div className="font-medium text-bauhaus-black">
+                            {VLM_MODELS.find(m => m.id === selectedModel)?.name || selectedModel}
+                          </div>
+                          <div className="text-sm text-bauhaus-gray">
+                            {VLM_MODELS.find(m => m.id === selectedModel)?.description}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs bg-bauhaus-blue/10 text-bauhaus-blue px-2 py-1 rounded">
+                            {VLM_MODELS.find(m => m.id === selectedModel)?.vram}
+                          </span>
+                          <ChevronDown className={cn(
+                            "w-5 h-5 text-bauhaus-gray transition-transform",
+                            showModelDropdown && "rotate-180"
+                          )} />
+                        </div>
+                      </button>
+                      {showModelDropdown && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border-2 border-bauhaus-charcoal shadow-lg max-h-64 overflow-auto">
+                          {VLM_MODELS.map((model) => (
+                            <button
+                              key={model.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedModel(model.id)
+                                setShowModelDropdown(false)
+                              }}
+                              className={cn(
+                                "w-full p-3 text-left hover:bg-bauhaus-light transition-colors border-b last:border-b-0",
+                                selectedModel === model.id && "bg-bauhaus-blue/5"
+                              )}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="font-medium text-bauhaus-black">
+                                    {model.name}
+                                  </div>
+                                  <div className="text-sm text-bauhaus-gray">
+                                    {model.description}
+                                  </div>
+                                </div>
+                                <span className="text-xs bg-bauhaus-blue/10 text-bauhaus-blue px-2 py-1 rounded">
+                                  {model.vram}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Generate Skills Button - appears after model selection */}
+                {selectedCli && (
+                  <div className="mt-4 p-4 bg-bauhaus-light border-2 border-bauhaus-silver">
                     <div className="flex items-center justify-between">
                       <div>
                         <h4 className="font-medium text-bauhaus-black">
@@ -588,7 +725,7 @@ export default function NewProject() {
                         </h4>
                         <p className="text-sm text-bauhaus-gray">
                           {hasApiConfigured
-                            ? `Create ${selectedCli.toUpperCase()} configuration with research and autonomous execution capabilities`
+                            ? `Create ${selectedCli.toUpperCase()} configuration for ${VLM_MODELS.find(m => m.id === selectedModel)?.name}`
                             : 'Configure API in Settings first to generate skills'}
                         </p>
                       </div>
@@ -728,6 +865,13 @@ export default function NewProject() {
                     <div className="font-bold text-bauhaus-black">
                       {CLI_AGENTS.find((a) => a.id === selectedCli)?.name}
                     </div>
+                  </div>
+                  <div className="p-4 bg-bauhaus-light col-span-2">
+                    <div className="text-sm text-bauhaus-gray">Model to Fine-tune</div>
+                    <div className="font-bold text-bauhaus-black">
+                      {VLM_MODELS.find(m => m.id === selectedModel)?.name || selectedModel}
+                    </div>
+                    <div className="text-xs text-bauhaus-gray mt-1">{selectedModel}</div>
                   </div>
                   {detection?.images && (
                     <div className="p-4 bg-bauhaus-light">
