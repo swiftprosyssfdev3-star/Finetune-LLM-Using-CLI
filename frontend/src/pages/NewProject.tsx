@@ -15,6 +15,10 @@ import {
   Lightbulb,
   ArrowRight,
   FolderPlus,
+  FileText,
+  FolderOpen,
+  Cog,
+  Terminal,
 } from 'lucide-react'
 
 export default function NewProject() {
@@ -27,6 +31,7 @@ export default function NewProject() {
   const [detection, setDetection] = useState<DetectionResult | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
+  const [uploadMode, setUploadMode] = useState<'files' | 'folder'>('files')
 
   const createMutation = useMutation({
     mutationFn: () => createProject(projectName, projectDescription),
@@ -54,16 +59,77 @@ export default function NewProject() {
     setIsDragging(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
 
-    const files = Array.from(e.dataTransfer.files)
-    setUploadedFiles((prev) => [...prev, ...files])
+    const items = e.dataTransfer.items
+    const files: File[] = []
+
+    // Handle directory drops using webkitGetAsEntry
+    const processEntry = async (entry: FileSystemEntry): Promise<void> => {
+      if (entry.isFile) {
+        const fileEntry = entry as FileSystemFileEntry
+        return new Promise((resolve) => {
+          fileEntry.file((file) => {
+            // Preserve the relative path in the file object
+            Object.defineProperty(file, 'webkitRelativePath', {
+              value: entry.fullPath.slice(1), // Remove leading slash
+              writable: false
+            })
+            files.push(file)
+            resolve()
+          })
+        })
+      } else if (entry.isDirectory) {
+        const dirEntry = entry as FileSystemDirectoryEntry
+        const reader = dirEntry.createReader()
+        return new Promise((resolve) => {
+          const readEntries = () => {
+            reader.readEntries(async (entries) => {
+              if (entries.length === 0) {
+                resolve()
+              } else {
+                await Promise.all(entries.map(processEntry))
+                readEntries() // Continue reading (directories may have batched results)
+              }
+            })
+          }
+          readEntries()
+        })
+      }
+    }
+
+    if (items) {
+      const entries: FileSystemEntry[] = []
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry()
+        if (entry) entries.push(entry)
+      }
+      await Promise.all(entries.map(processEntry))
+      if (files.length > 0) {
+        setUploadMode('folder')
+        setUploadedFiles((prev) => [...prev, ...files])
+      }
+    } else {
+      // Fallback for browsers that don't support webkitGetAsEntry
+      const droppedFiles = Array.from(e.dataTransfer.files)
+      setUploadedFiles((prev) => [...prev, ...droppedFiles])
+    }
   }, [])
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
+    // Check if files have webkitRelativePath (folder upload)
+    if (files.length > 0 && files[0].webkitRelativePath) {
+      setUploadMode('folder')
+    }
+    setUploadedFiles((prev) => [...prev, ...files])
+  }, [])
+
+  const handleFolderSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    setUploadMode('folder')
     setUploadedFiles((prev) => [...prev, ...files])
   }, [])
 
@@ -196,7 +262,6 @@ export default function NewProject() {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                onClick={() => document.getElementById('file-input')?.click()}
               >
                 <input
                   id="file-input"
@@ -205,15 +270,49 @@ export default function NewProject() {
                   className="hidden"
                   onChange={handleFileSelect}
                 />
+                <input
+                  id="folder-input"
+                  type="file"
+                  // @ts-expect-error - webkitdirectory is not in standard types
+                  webkitdirectory=""
+                  directory=""
+                  multiple
+                  className="hidden"
+                  onChange={handleFolderSelect}
+                />
                 <Upload className="w-12 h-12 mx-auto text-bauhaus-gray mb-4" />
                 <p className="text-lg font-medium text-bauhaus-charcoal mb-2">
                   Drop files or folders here
                 </p>
-                <p className="text-bauhaus-gray">or click to browse</p>
+                <p className="text-bauhaus-gray mb-4">or choose an option below</p>
+                <div className="flex gap-4 justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      document.getElementById('file-input')?.click()
+                    }}
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Select Files
+                  </Button>
+                  <Button
+                    variant="blue"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      document.getElementById('folder-input')?.click()
+                    }}
+                  >
+                    <FolderOpen className="w-4 h-4 mr-2" />
+                    Select Folder
+                  </Button>
+                </div>
               </div>
 
               {/* Supported formats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                 <div className="flex items-center gap-2 text-bauhaus-gray">
                   <ImageIcon className="w-4 h-4" />
                   <span>.jpg .png .tiff .pdf</span>
@@ -227,30 +326,64 @@ export default function NewProject() {
                   <span>.json .jsonl</span>
                 </div>
                 <div className="flex items-center gap-2 text-bauhaus-gray">
+                  <FileText className="w-4 h-4" />
+                  <span>.docx .md .txt .rtf</span>
+                </div>
+                <div className="flex items-center gap-2 text-bauhaus-gray">
                   <FolderPlus className="w-4 h-4" />
                   <span>.zip .tar.gz</span>
+                </div>
+                <div className="flex items-center gap-2 text-bauhaus-gray">
+                  <FolderOpen className="w-4 h-4" />
+                  <span>Entire folders</span>
                 </div>
               </div>
 
               {/* Uploaded files */}
               {uploadedFiles.length > 0 && (
                 <div className="border-2 border-bauhaus-charcoal p-4">
-                  <h4 className="font-medium mb-3">
-                    Selected Files ({uploadedFiles.length})
-                  </h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium">
+                      {uploadMode === 'folder' ? (
+                        <span className="flex items-center gap-2">
+                          <FolderOpen className="w-4 h-4 text-bauhaus-blue" />
+                          Folder Upload ({uploadedFiles.length} files)
+                        </span>
+                      ) : (
+                        `Selected Files (${uploadedFiles.length})`
+                      )}
+                    </h4>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setUploadedFiles([])
+                        setUploadMode('files')
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {uploadedFiles.map((file, i) => (
                       <div
                         key={i}
                         className="flex items-center justify-between text-sm"
                       >
-                        <span className="truncate">{file.name}</span>
-                        <span className="text-bauhaus-gray ml-2">
+                        <span className="truncate font-mono text-xs">
+                          {file.webkitRelativePath || file.name}
+                        </span>
+                        <span className="text-bauhaus-gray ml-2 flex-shrink-0">
                           {formatBytes(file.size)}
                         </span>
                       </div>
                     ))}
                   </div>
+                  {uploadMode === 'folder' && (
+                    <div className="mt-3 pt-3 border-t border-bauhaus-silver text-sm text-bauhaus-gray">
+                      Total size: {formatBytes(uploadedFiles.reduce((sum, f) => sum + f.size, 0))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -355,6 +488,63 @@ export default function NewProject() {
                     <pre className="text-sm bg-bauhaus-light p-4 overflow-x-auto">
                       {detection.schema.sample_output}
                     </pre>
+                  </div>
+                )}
+
+                {/* Processing Instructions */}
+                {detection.processing && (
+                  <div className="border-2 border-bauhaus-charcoal p-4 bg-bauhaus-light">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Cog className="w-5 h-5 text-bauhaus-charcoal" />
+                      <h4 className="font-bold">Auto-Detected Processing</h4>
+                      <Badge variant="gray">{detection.processing.task_type}</Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                      <div>
+                        <span className="text-bauhaus-gray">Input Format:</span>
+                        <span className="ml-2 font-medium">{detection.processing.input_format}</span>
+                      </div>
+                      <div>
+                        <span className="text-bauhaus-gray">Output Format:</span>
+                        <span className="ml-2 font-medium">{detection.processing.output_format}</span>
+                      </div>
+                      <div>
+                        <span className="text-bauhaus-gray">Matching Strategy:</span>
+                        <span className="ml-2 font-medium">{detection.processing.matching_strategy}</span>
+                      </div>
+                    </div>
+                    {detection.processing.special_instructions.length > 0 && (
+                      <div className="text-sm border-t border-bauhaus-silver pt-3 mt-3">
+                        <span className="text-bauhaus-gray block mb-2">Special Instructions:</span>
+                        <ul className="list-disc list-inside space-y-1">
+                          {detection.processing.special_instructions.map((instr, i) => (
+                            <li key={i}>{instr}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Agent Prompt Preview */}
+                {detection.agent_prompt && (
+                  <div className="border-2 border-bauhaus-blue p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Terminal className="w-5 h-5 text-bauhaus-blue" />
+                      <h4 className="font-bold">CLI Agent Prompt</h4>
+                      <Badge variant="blue">Auto-generated</Badge>
+                    </div>
+                    <p className="text-sm text-bauhaus-gray mb-3">
+                      This prompt will be automatically sent to the CLI agent for processing your data.
+                    </p>
+                    <details className="text-sm">
+                      <summary className="cursor-pointer text-bauhaus-blue hover:underline">
+                        View full prompt
+                      </summary>
+                      <pre className="mt-3 bg-bauhaus-black text-terminal-green p-4 overflow-x-auto text-xs whitespace-pre-wrap max-h-64 overflow-y-auto">
+                        {detection.agent_prompt}
+                      </pre>
+                    </details>
                   </div>
                 )}
 

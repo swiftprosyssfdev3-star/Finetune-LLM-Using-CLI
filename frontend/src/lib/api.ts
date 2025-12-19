@@ -80,12 +80,35 @@ export interface OutputSchema {
   sample_output: string;
 }
 
+export interface ProcessingInstructions {
+  task_type: string;
+  input_format: string;
+  output_format: string;
+  matching_strategy: string;
+  special_instructions: string[];
+}
+
 export interface DetectionResult {
   images?: ImageSet;
   data?: DataFile;
   schema?: OutputSchema;
+  processing?: ProcessingInstructions;
+  agent_prompt?: string;
   warnings: string[];
   suggestions: string[];
+}
+
+export interface AutoProcessResult {
+  status: string;
+  agent: string;
+  prompt_file: string;
+  agent_prompt: string;
+  processing?: ProcessingInstructions;
+  summary: {
+    images: number;
+    data_rows: number;
+    task_type: string;
+  };
 }
 
 export interface SkillConfig {
@@ -146,7 +169,13 @@ export async function updateProject(projectId: string, updates: Partial<Project>
 // File Upload
 export async function uploadFiles(projectId: string, files: File[]): Promise<DetectionResult> {
   const formData = new FormData();
-  files.forEach(file => formData.append('files', file));
+
+  // Preserve relative paths for folder uploads
+  files.forEach(file => {
+    // Use webkitRelativePath if available (folder upload), otherwise use name
+    const relativePath = file.webkitRelativePath || file.name;
+    formData.append('files', file, relativePath);
+  });
 
   const response = await fetch(`${API_BASE}/projects/${projectId}/upload`, {
     method: 'POST',
@@ -168,6 +197,20 @@ export async function saveSchema(projectId: string, schema: Record<string, unkno
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(schema),
   });
+}
+
+export async function autoProcessProject(
+  projectId: string,
+  agent: string = 'claude'
+): Promise<AutoProcessResult> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/auto-process?agent=${agent}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Auto-process failed');
+  }
+  return response.json();
 }
 
 // HuggingFace

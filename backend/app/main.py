@@ -256,7 +256,7 @@ async def update_project(project_id: str, updates: Dict[str, Any]):
 
 @app.post("/api/projects/{project_id}/upload")
 async def upload_files(project_id: str, files: List[UploadFile] = File(...)):
-    """Upload files and auto-detect format."""
+    """Upload files and auto-detect format. Supports folder uploads with preserved paths."""
     project_dir = PROJECTS_DIR / project_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project not found")
@@ -266,12 +266,20 @@ async def upload_files(project_id: str, files: List[UploadFile] = File(...)):
 
     paths = []
     for file in files:
-        file_path = upload_dir / file.filename
+        # Preserve folder structure from filename (e.g., "folder/subfolder/image.jpg")
+        relative_path = Path(file.filename)
+        if len(relative_path.parts) > 1:
+            # File is in a subdirectory - preserve structure
+            file_path = upload_dir / relative_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            file_path = upload_dir / file.filename
+
         content = await file.read()
         file_path.write_bytes(content)
         paths.append(str(file_path))
 
-    # Detect inputs
+    # Detect inputs - will recursively scan folders
     result = await input_detector.detect_inputs(paths)
 
     # Copy images to images directory if detected
@@ -285,7 +293,8 @@ async def upload_files(project_id: str, files: List[UploadFile] = File(...)):
                 if not dst.exists():
                     shutil.copy2(src, dst)
 
-    return {
+    # Build response with agent prompt if available
+    response = {
         "uploaded": len(paths),
         "images": result.images.__dict__ if result.images else None,
         "data": result.data.__dict__ if result.data else None,
@@ -294,10 +303,18 @@ async def upload_files(project_id: str, files: List[UploadFile] = File(...)):
         "suggestions": result.suggestions,
     }
 
+    # Add processing instructions and agent prompt if available
+    if result.processing:
+        response["processing"] = result.processing.__dict__
+    if result.agent_prompt:
+        response["agent_prompt"] = result.agent_prompt
+
+    return response
+
 
 @app.post("/api/projects/{project_id}/detect")
 async def detect_project_inputs(project_id: str):
-    """Re-detect inputs for existing project files."""
+    """Re-detect inputs for existing project files. Recursively scans folders."""
     project_dir = PROJECTS_DIR / project_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project not found")
@@ -306,16 +323,76 @@ async def detect_project_inputs(project_id: str):
     for subdir in ["uploads", "images"]:
         dir_path = project_dir / subdir
         if dir_path.exists():
-            paths.extend([str(f) for f in dir_path.glob("*") if f.is_file()])
+            # Recursively scan directories
+            for f in dir_path.rglob("*"):
+                if f.is_file():
+                    paths.append(str(f))
 
     result = await input_detector.detect_inputs(paths)
 
-    return {
+    response = {
         "images": result.images.__dict__ if result.images else None,
         "data": result.data.__dict__ if result.data else None,
         "schema": result.schema.__dict__ if result.schema else None,
         "warnings": result.warnings,
         "suggestions": result.suggestions,
+    }
+
+    # Add processing instructions and agent prompt
+    if result.processing:
+        response["processing"] = result.processing.__dict__
+    if result.agent_prompt:
+        response["agent_prompt"] = result.agent_prompt
+
+    return response
+
+
+@app.post("/api/projects/{project_id}/auto-process")
+async def auto_process_project(
+    project_id: str,
+    agent: str = Query("claude", description="CLI agent to use (claude, gemini, codex, qwen, aider)")
+):
+    """Auto-process project data with CLI agent.
+
+    This endpoint detects input files, generates processing instructions,
+    and returns the agent prompt to be used for automatic processing.
+    """
+    project_dir = PROJECTS_DIR / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Detect all inputs
+    paths = []
+    for subdir in ["uploads", "images"]:
+        dir_path = project_dir / subdir
+        if dir_path.exists():
+            for f in dir_path.rglob("*"):
+                if f.is_file():
+                    paths.append(str(f))
+
+    result = await input_detector.detect_inputs(paths)
+
+    if not result.agent_prompt:
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to generate processing instructions. Please provide images and truth data."
+        )
+
+    # Save the agent prompt as a skill file
+    prompt_file = project_dir / "AGENT_PROMPT.md"
+    prompt_file.write_text(result.agent_prompt)
+
+    return {
+        "status": "ready",
+        "agent": agent,
+        "prompt_file": str(prompt_file),
+        "agent_prompt": result.agent_prompt,
+        "processing": result.processing.__dict__ if result.processing else None,
+        "summary": {
+            "images": result.images.count if result.images else 0,
+            "data_rows": result.data.row_count if result.data else 0,
+            "task_type": result.processing.task_type if result.processing else "unknown"
+        }
     }
 
 
