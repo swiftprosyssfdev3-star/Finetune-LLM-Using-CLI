@@ -48,3 +48,22 @@ htmlcov/
 tmp/
 temp/
 *.tmp
+
+# Models and Weights
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+*.gguf
+*.h5
+models/
+.cache/
+hf_cache/
+transformers_cache/
+
+# Data
+data/
+datasets/
+raw_data/
+processed_data/
