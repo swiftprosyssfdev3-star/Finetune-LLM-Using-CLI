@@ -44,6 +44,7 @@ app.add_middleware(
 # Ensure directories exist
 PROJECTS_DIR = Path("./projects")
 MODELS_DIR = Path("./models/cache")
+SETTINGS_FILE = Path("./settings.json")
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -74,6 +75,155 @@ async def get_status():
             "terminal": "available"
         }
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# SETTINGS API
+# ═══════════════════════════════════════════════════════════════
+
+def load_settings() -> Dict[str, Any]:
+    """Load settings from file."""
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text())
+        except:
+            return {}
+    return {}
+
+
+def save_settings(settings: Dict[str, Any]) -> None:
+    """Save settings to file."""
+    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+
+@app.get("/api/settings")
+async def get_settings():
+    """Get application settings."""
+    settings = load_settings()
+    # Mask sensitive fields
+    masked_settings = settings.copy()
+    if 'openai' in masked_settings and masked_settings['openai'].get('api_key'):
+        key = masked_settings['openai']['api_key']
+        masked_settings['openai']['api_key'] = key[:8] + '...' + key[-4:] if len(key) > 12 else '***'
+    if 'huggingface' in masked_settings and masked_settings['huggingface'].get('token'):
+        token = masked_settings['huggingface']['token']
+        masked_settings['huggingface']['token'] = token[:8] + '...' + token[-4:] if len(token) > 12 else '***'
+    return {"settings": masked_settings}
+
+
+@app.post("/api/settings")
+async def update_settings(settings: Dict[str, Any]):
+    """Update application settings."""
+    try:
+        # Load existing settings to preserve any unmasked keys
+        existing = load_settings()
+
+        # Handle masked API keys - don't overwrite with masked value
+        if 'openai' in settings:
+            if settings['openai'].get('api_key', '').endswith('...'):
+                settings['openai']['api_key'] = existing.get('openai', {}).get('api_key', '')
+        if 'huggingface' in settings:
+            if settings['huggingface'].get('token', '').endswith('...'):
+                settings['huggingface']['token'] = existing.get('huggingface', {}).get('token', '')
+
+        # Merge with existing settings
+        merged = {**existing, **settings}
+
+        # Deep merge nested dicts
+        for key in ['openai', 'huggingface', 'training', 'storage', 'app']:
+            if key in existing and key in settings:
+                merged[key] = {**existing.get(key, {}), **settings.get(key, {})}
+
+        save_settings(merged)
+
+        # Also update the skill generator config if OpenAI settings changed
+        if 'openai' in settings and settings['openai'].get('api_key'):
+            openai_config = merged.get('openai', {})
+            if openai_config.get('base_url') and openai_config.get('api_key'):
+                skill_generator.configure(SkillGeneratorConfig(
+                    base_url=openai_config['base_url'],
+                    api_key=openai_config['api_key'],
+                    model=openai_config.get('model', 'gpt-4o'),
+                ))
+
+        # Set HuggingFace token as environment variable
+        if 'huggingface' in settings and settings['huggingface'].get('token'):
+            os.environ['HF_TOKEN'] = merged['huggingface']['token']
+
+        return {"status": "saved", "settings": merged}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/settings/test/openai")
+async def test_openai_connection(config: Dict[str, Any]):
+    """Test OpenAI-compatible API connection."""
+    import httpx
+
+    base_url = config.get('base_url', '').rstrip('/')
+    api_key = config.get('api_key', '')
+
+    if not base_url or not api_key:
+        return {"success": False, "error": "Base URL and API key are required"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                models = [m.get('id', m.get('name', 'unknown')) for m in data.get('data', data.get('models', []))]
+                return {"success": True, "models": models[:20]}
+            elif response.status_code == 401:
+                return {"success": False, "error": "Invalid API key"}
+            elif response.status_code == 404:
+                # Some providers don't have /models endpoint, try a simple completion
+                return {"success": True, "models": [], "message": "Connected (models list not available)"}
+            else:
+                return {"success": False, "error": f"HTTP {response.status_code}: {response.text[:100]}"}
+    except httpx.TimeoutException:
+        return {"success": False, "error": "Connection timed out"}
+    except httpx.ConnectError as e:
+        return {"success": False, "error": f"Connection failed: {str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/settings/test/huggingface")
+async def test_huggingface_connection(config: Dict[str, Any]):
+    """Test HuggingFace token."""
+    import httpx
+
+    token = config.get('token', '')
+
+    if not token:
+        return {"success": False, "error": "Token is required"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://huggingface.co/api/whoami-v2",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "success": True,
+                    "username": data.get('name', data.get('fullname', 'user')),
+                    "email": data.get('email'),
+                }
+            elif response.status_code == 401:
+                return {"success": False, "error": "Invalid token"}
+            else:
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+    except httpx.TimeoutException:
+        return {"success": False, "error": "Connection timed out"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════

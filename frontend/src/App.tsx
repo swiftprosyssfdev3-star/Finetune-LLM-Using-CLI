@@ -17,12 +17,14 @@ import ProjectView from '@/pages/ProjectView'
 import HuggingFaceBrowser from '@/pages/HuggingFaceBrowser'
 import SkillGenerator from '@/pages/SkillGenerator'
 import Training from '@/pages/Training'
+import SettingsPage from '@/pages/Settings'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'New Project', href: '/new', icon: FolderPlus },
   { name: 'Model Browser', href: '/models', icon: Search },
   { name: 'Skill Generator', href: '/skills', icon: Sparkles },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
 function Sidebar() {
@@ -98,6 +100,7 @@ function App() {
           <Route path="/project/:projectId/train" element={<Training />} />
           <Route path="/models" element={<HuggingFaceBrowser />} />
           <Route path="/skills" element={<SkillGenerator />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
     </div>

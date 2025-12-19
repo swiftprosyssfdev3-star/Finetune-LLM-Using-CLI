@@ -103,6 +103,30 @@ export interface GeneratedSkill {
   agent: string;
 }
 
+export interface AppSettings {
+  openai?: {
+    base_url?: string;
+    api_key?: string;
+    model?: string;
+  };
+  huggingface?: {
+    token?: string;
+  };
+  training?: {
+    method?: string;
+    batch_size?: number;
+    learning_rate?: string;
+    epochs?: number;
+  };
+  storage?: {
+    model_cache_dir?: string;
+  };
+  app?: {
+    auto_save_interval?: number;
+    terminal_theme?: string;
+  };
+}
+
 // API Functions
 
 // Projects
@@ -293,4 +317,53 @@ export async function getGeneratedFiles(projectId: string): Promise<Array<{
   const response = await fetch(`${API_BASE}/projects/${projectId}/generated`);
   const data = await response.json();
   return data.files;
+}
+
+// Settings
+export async function getSettings(): Promise<AppSettings> {
+  const response = await fetch(`${API_BASE}/settings`);
+  if (!response.ok) {
+    return {};
+  }
+  const data = await response.json();
+  return data.settings || {};
+}
+
+export async function updateSettings(settings: AppSettings): Promise<AppSettings> {
+  const response = await fetch(`${API_BASE}/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to save settings');
+  }
+  const data = await response.json();
+  return data.settings;
+}
+
+export async function testOpenAIConnection(config: {
+  base_url: string;
+  api_key: string;
+  model?: string;
+}): Promise<{ success: boolean; models?: string[]; error?: string }> {
+  const response = await fetch(`${API_BASE}/settings/test/openai`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  return response.json();
+}
+
+export async function testHuggingFaceConnection(token: string): Promise<{
+  success: boolean;
+  username?: string;
+  error?: string;
+}> {
+  const response = await fetch(`${API_BASE}/settings/test/huggingface`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  return response.json();
 }
