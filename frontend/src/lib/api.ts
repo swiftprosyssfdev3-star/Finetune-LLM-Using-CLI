@@ -255,7 +255,13 @@ export async function configureSkillGenerator(config: SkillConfig): Promise<void
 
 export async function testSkillConnection(): Promise<{ success: boolean; models?: string[]; error?: string }> {
   const response = await fetch(`${API_BASE}/skills/test`, { method: 'POST' });
-  return response.json();
+  const data = await response.json();
+
+  // Handle both direct response format and HTTPException format
+  if (data.detail) {
+    return { success: false, error: data.detail };
+  }
+  return data;
 }
 
 export async function generateSkills(

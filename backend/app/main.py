@@ -527,8 +527,8 @@ async def configure_from_preset(
 async def test_skill_generator():
     """Test the skill generator API connection."""
     result = await skill_generator.test_connection()
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result.get("error", "Connection failed"))
+    # Return consistent JSON format regardless of success/failure
+    # (don't raise HTTPException so frontend can parse the error message)
     return result
 
 
