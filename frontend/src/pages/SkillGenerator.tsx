@@ -1,42 +1,26 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import {
-  getSkillPresets,
+  getSettings,
   configureSkillGenerator,
   testSkillConnection,
   generateSkills,
 } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/bauhaus'
-import { Button, Input, Badge } from '@/components/bauhaus'
+import { Button, Badge } from '@/components/bauhaus'
 import {
   Settings,
   CheckCircle,
   XCircle,
   Sparkles,
   Eye,
-  Download,
   Copy,
-  ExternalLink,
+  AlertCircle,
+  Server,
 } from 'lucide-react'
 
-const PRESET_INFO: Record<string, { icon: string; color: string }> = {
-  openai: { icon: '🟢', color: 'bg-terminal-green' },
-  anthropic: { icon: '🟠', color: 'bg-agent-claude' },
-  deepseek: { icon: '🔵', color: 'bg-bauhaus-blue' },
-  groq: { icon: '⚡', color: 'bg-bauhaus-yellow' },
-  openrouter: { icon: '🌐', color: 'bg-bauhaus-charcoal' },
-  together: { icon: '🤝', color: 'bg-bauhaus-blue' },
-  fireworks: { icon: '🎆', color: 'bg-bauhaus-red' },
-  ollama: { icon: '🦙', color: 'bg-bauhaus-charcoal' },
-  dashscope: { icon: '🟣', color: 'bg-agent-qwen' },
-  mistral: { icon: '🔷', color: 'bg-bauhaus-blue' },
-}
-
 export default function SkillGenerator() {
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
-  const [customBaseUrl, setCustomBaseUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState('')
   const [temperature, setTemperature] = useState(0.7)
   const [testResult, setTestResult] = useState<{
     success: boolean
@@ -47,21 +31,24 @@ export default function SkillGenerator() {
   >([])
   const [selectedSkillPreview, setSelectedSkillPreview] = useState<string | null>(null)
 
-  const { data: presets } = useQuery({
-    queryKey: ['skill-presets'],
-    queryFn: getSkillPresets,
+  // Fetch settings from Settings page
+  const { data: settings, isLoading: isLoadingSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
   })
+
+  // Check if API is configured
+  const isApiConfigured = settings?.openai?.base_url && settings?.openai?.api_key
+  const configuredBaseUrl = settings?.openai?.base_url || ''
+  const configuredApiKey = settings?.openai?.api_key || ''
+  const configuredModel = settings?.openai?.model || 'gpt-4o'
 
   const configureMutation = useMutation({
     mutationFn: () =>
       configureSkillGenerator({
-        base_url: selectedPreset && presets?.[selectedPreset]
-          ? presets[selectedPreset].base_url
-          : customBaseUrl,
-        api_key: apiKey,
-        model: model || (selectedPreset && presets?.[selectedPreset]
-          ? presets[selectedPreset].models[0]
-          : ''),
+        base_url: configuredBaseUrl,
+        api_key: configuredApiKey,
+        model: configuredModel,
         temperature,
       }),
     onSuccess: () => {
@@ -109,15 +96,7 @@ export default function SkillGenerator() {
     },
   })
 
-  const handleSelectPreset = (preset: string) => {
-    setSelectedPreset(preset)
-    setCustomBaseUrl('')
-    if (presets?.[preset]) {
-      setModel(presets[preset].models[0])
-    }
-  }
-
-  const handleConfigure = async () => {
+  const handleTestConnection = async () => {
     await configureMutation.mutateAsync()
     testMutation.mutate()
   }
@@ -132,7 +111,7 @@ export default function SkillGenerator() {
       <div className="page-header">
         <h1 className="page-title">Skill Generator</h1>
         <p className="page-subtitle">
-          Configure an OpenAI-compatible API to generate agent skill files
+          Generate agent skill files using your configured API
         </p>
       </div>
 
@@ -140,135 +119,110 @@ export default function SkillGenerator() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Configuration Panel */}
           <div className="space-y-6">
-            {/* Provider Presets */}
+            {/* API Configuration - Uses Settings */}
             <Card variant="blue">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Settings className="w-5 h-5" />
-                  Provider Presets
+                  <Server className="w-5 h-5" />
+                  API Configuration
                 </CardTitle>
                 <CardDescription>
-                  Select a provider or use a custom endpoint
+                  Using settings from the Settings page
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-                  {presets &&
-                    Object.entries(presets).map(([key, preset]) => (
-                      <button
-                        key={key}
-                        onClick={() => handleSelectPreset(key)}
-                        className={`p-3 border-2 text-left transition-all ${
-                          selectedPreset === key
-                            ? 'border-bauhaus-blue bg-bauhaus-blue/5'
-                            : 'border-bauhaus-silver hover:border-bauhaus-charcoal'
+              <CardContent className="space-y-4">
+                {isLoadingSettings ? (
+                  <div className="text-center py-4">
+                    <p className="text-bauhaus-gray">Loading settings...</p>
+                  </div>
+                ) : isApiConfigured ? (
+                  <>
+                    {/* Show configured settings */}
+                    <div className="bg-bauhaus-light p-4 rounded space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-bauhaus-gray">Base URL</span>
+                        <span className="text-sm font-mono truncate max-w-[200px]">
+                          {configuredBaseUrl}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-bauhaus-gray">API Key</span>
+                        <Badge variant="green">Configured</Badge>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-bauhaus-gray">Model</span>
+                        <span className="text-sm font-mono">{configuredModel}</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-bauhaus-black mb-2">
+                        Temperature: {temperature}
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        value={temperature}
+                        onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-bauhaus-gray mt-1">
+                        Controls randomness in skill generation
+                      </p>
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        variant="blue"
+                        onClick={handleTestConnection}
+                        loading={configureMutation.isPending || testMutation.isPending}
+                      >
+                        Test Connection
+                      </Button>
+                      <Link to="/settings">
+                        <Button variant="ghost" size="sm">
+                          <Settings className="w-4 h-4 mr-1" />
+                          Edit Settings
+                        </Button>
+                      </Link>
+                    </div>
+
+                    {/* Test Result */}
+                    {testResult && (
+                      <div
+                        className={`flex items-center gap-2 p-3 ${
+                          testResult.success
+                            ? 'bg-terminal-green/10 text-terminal-green'
+                            : 'bg-bauhaus-red/10 text-bauhaus-red'
                         }`}
                       >
-                        <span className="text-lg mr-2">
-                          {PRESET_INFO[key]?.icon || '📦'}
-                        </span>
-                        <span className="font-medium text-sm">{preset.name}</span>
-                      </button>
-                    ))}
-                  <button
-                    onClick={() => {
-                      setSelectedPreset(null)
-                      setModel('')
-                    }}
-                    className={`p-3 border-2 text-left transition-all ${
-                      selectedPreset === null
-                        ? 'border-bauhaus-blue bg-bauhaus-blue/5'
-                        : 'border-bauhaus-silver hover:border-bauhaus-charcoal'
-                    }`}
-                  >
-                    <span className="text-lg mr-2">⚙️</span>
-                    <span className="font-medium text-sm">Custom</span>
-                  </button>
-                </div>
-
-                {/* Custom Base URL */}
-                {selectedPreset === null && (
-                  <Input
-                    label="Custom Base URL"
-                    placeholder="https://api.example.com/v1"
-                    value={customBaseUrl}
-                    onChange={(e) => setCustomBaseUrl(e.target.value)}
-                  />
-                )}
-              </CardContent>
-            </Card>
-
-            {/* API Configuration */}
-            <Card variant="yellow">
-              <CardHeader>
-                <CardTitle>API Configuration</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Input
-                  label="API Key"
-                  type="password"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                />
-
-                <Input
-                  label="Model"
-                  placeholder={
-                    selectedPreset && presets?.[selectedPreset]
-                      ? presets[selectedPreset].models[0]
-                      : 'gpt-4o'
-                  }
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  hint={
-                    selectedPreset && presets?.[selectedPreset]
-                      ? `Available: ${presets[selectedPreset].models.join(', ')}`
-                      : undefined
-                  }
-                />
-
-                <div>
-                  <label className="block text-sm font-medium text-bauhaus-black mb-2">
-                    Temperature: {temperature}
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    value={temperature}
-                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <Button
-                    variant="blue"
-                    onClick={handleConfigure}
-                    loading={configureMutation.isPending || testMutation.isPending}
-                    disabled={!apiKey || (!selectedPreset && !customBaseUrl)}
-                  >
-                    Configure & Test
-                  </Button>
-                </div>
-
-                {/* Test Result */}
-                {testResult && (
-                  <div
-                    className={`flex items-center gap-2 p-3 ${
-                      testResult.success
-                        ? 'bg-terminal-green/10 text-terminal-green'
-                        : 'bg-bauhaus-red/10 text-bauhaus-red'
-                    }`}
-                  >
-                    {testResult.success ? (
-                      <CheckCircle className="w-5 h-5" />
-                    ) : (
-                      <XCircle className="w-5 h-5" />
+                        {testResult.success ? (
+                          <CheckCircle className="w-5 h-5" />
+                        ) : (
+                          <XCircle className="w-5 h-5" />
+                        )}
+                        <span className="text-sm">{testResult.message}</span>
+                      </div>
                     )}
-                    <span className="text-sm">{testResult.message}</span>
+                  </>
+                ) : (
+                  /* API Not Configured - Show message with link to Settings */
+                  <div className="text-center py-6">
+                    <AlertCircle className="w-12 h-12 mx-auto text-bauhaus-yellow mb-4" />
+                    <h3 className="font-medium text-bauhaus-black mb-2">
+                      API Not Configured
+                    </h3>
+                    <p className="text-sm text-bauhaus-gray mb-4">
+                      Configure your OpenAI-compatible API in the Settings page to generate skill files.
+                    </p>
+                    <Link to="/settings">
+                      <Button variant="yellow">
+                        <Settings className="w-4 h-4 mr-2" />
+                        Go to Settings
+                      </Button>
+                    </Link>
                   </div>
                 )}
               </CardContent>
@@ -294,7 +248,7 @@ export default function SkillGenerator() {
                   variant="red"
                   onClick={() => generateMutation.mutate()}
                   loading={generateMutation.isPending}
-                  disabled={!testResult?.success}
+                  disabled={!isApiConfigured || !testResult?.success}
                 >
                   <Sparkles className="w-4 h-4 mr-2" />
                   Generate Skill Files
@@ -363,7 +317,7 @@ export default function SkillGenerator() {
                   <div className="text-center py-12">
                     <Sparkles className="w-12 h-12 mx-auto text-bauhaus-gray mb-4" />
                     <p className="text-bauhaus-gray">
-                      Configure and test the API, then generate skill files
+                      Test the API connection, then generate skill files
                     </p>
                   </div>
                 )}
