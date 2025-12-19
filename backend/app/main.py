@@ -614,7 +614,18 @@ async def terminal_websocket(websocket: WebSocket, project_id: str, agent: str):
         await websocket.close(code=4004, reason="Project not found")
         return
 
-    await terminal_manager.handle_websocket(websocket, project_id, agent)
+    # Load settings to get configured models
+    settings = load_settings()
+    openai_config = settings.get('openai', {})
+
+    # Build model configuration for agents
+    model_config = {
+        'default_model': openai_config.get('model', 'gpt-4o'),
+        'api_key': openai_config.get('api_key', ''),
+        'base_url': openai_config.get('base_url', ''),
+    }
+
+    await terminal_manager.handle_websocket(websocket, project_id, agent, model_config)
 
 
 @app.get("/api/terminals")
