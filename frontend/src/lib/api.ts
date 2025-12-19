@@ -294,3 +294,97 @@ export async function getGeneratedFiles(projectId: string): Promise<Array<{
   const data = await response.json();
   return data.files;
 }
+
+// Bulk Upload
+export interface BulkUploadResult {
+  status: string;
+  uploaded_files?: number;
+  source_folder?: string;
+  images?: ImageSet;
+  truth_data?: DataFile;
+  matched_pairs: number;
+  unmatched_images: number;
+  review_prompt: string;
+  suggestions: string[];
+  warnings: string[];
+  processing_time: number;
+}
+
+export interface BulkProcessingResult {
+  project_id: string;
+  images_count: number;
+  truth_data_rows: number;
+  matched_pairs_count: number;
+  unmatched_images_count: number;
+  matched_pairs: Array<{
+    image_path: string;
+    image_name: string;
+    truth_data: Record<string, unknown>;
+    confidence: number;
+  }>;
+  unmatched_images: string[];
+  suggestions: string[];
+  warnings: string[];
+  processing_time_seconds: number;
+  processed_at: string;
+}
+
+export interface AgentReviewResult {
+  agent_type: string;
+  instructions: string;
+  saved_to: string;
+}
+
+export async function bulkUploadFiles(projectId: string, files: File[]): Promise<BulkUploadResult> {
+  const formData = new FormData();
+  files.forEach(file => formData.append('files', file));
+
+  const response = await fetch(`${API_BASE}/projects/${projectId}/bulk-upload`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Bulk upload failed');
+  }
+
+  return response.json();
+}
+
+export async function bulkUploadFolder(projectId: string, folderPath: string): Promise<BulkUploadResult> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/bulk-upload/folder?folder_path=${encodeURIComponent(folderPath)}`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Folder processing failed');
+  }
+
+  return response.json();
+}
+
+export async function getBulkUploadResult(projectId: string): Promise<BulkProcessingResult> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/bulk-upload/result`);
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to get bulk upload result');
+  }
+
+  return response.json();
+}
+
+export async function generateAgentReview(projectId: string, agentType: string = 'claude'): Promise<AgentReviewResult> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/bulk-upload/agent-review?agent_type=${encodeURIComponent(agentType)}`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to generate agent review');
+  }
+
+  return response.json();
+}

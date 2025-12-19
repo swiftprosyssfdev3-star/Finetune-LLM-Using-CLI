@@ -24,6 +24,7 @@ from app.services.huggingface_browser import hf_browser
 from app.services.input_detector import input_detector
 from app.services.skill_generator import skill_generator, SkillGeneratorConfig, PROVIDER_PRESETS
 from app.services.terminal_manager import terminal_manager
+from app.services.bulk_processor import bulk_processor
 
 # Create FastAPI app
 app = FastAPI(
@@ -330,6 +331,224 @@ async def save_schema(project_id: str, schema: Dict[str, Any]):
     schema_file.write_text(json.dumps(schema, indent=2))
 
     return {"status": "saved", "path": str(schema_file)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# BULK UPLOAD API
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/projects/{project_id}/bulk-upload")
+async def bulk_upload_files(project_id: str, files: List[UploadFile] = File(...)):
+    """
+    Bulk upload images and truth data files.
+
+    Supports:
+    - Image files (jpg, png, tiff, pdf, webp, bmp, gif)
+    - Truth data (xlsx, json, docx, markdown, csv)
+    - Archives (zip, tar.gz) containing images and data
+
+    The system automatically:
+    - Detects file types
+    - Matches images to truth data
+    - Generates review prompts for CLI agent
+    """
+    project_dir = PROJECTS_DIR / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    upload_dir = project_dir / "bulk_uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save uploaded files
+    paths = []
+    for file in files:
+        file_path = upload_dir / file.filename
+        content = await file.read()
+        file_path.write_bytes(content)
+        paths.append(str(file_path))
+
+    # Process the bulk upload
+    try:
+        result = await bulk_processor.process_folder(
+            folder_path=upload_dir,
+            project_id=project_id
+        )
+
+        # Save results
+        await bulk_processor.save_processing_result(result, project_dir)
+
+        # Update project metadata
+        meta_file = project_dir / "project.json"
+        meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
+        meta["bulk_upload"] = {
+            "images_count": result.images.count if result.images else 0,
+            "truth_data_rows": result.truth_data.row_count if result.truth_data else 0,
+            "matched_pairs": len(result.matched_pairs),
+            "processed_at": datetime.utcnow().isoformat()
+        }
+        meta_file.write_text(json.dumps(meta, indent=2))
+
+        return {
+            "status": "processed",
+            "uploaded_files": len(paths),
+            "images": result.images.__dict__ if result.images else None,
+            "truth_data": result.truth_data.__dict__ if result.truth_data else None,
+            "matched_pairs": len(result.matched_pairs),
+            "unmatched_images": len(result.unmatched_images),
+            "review_prompt": result.review_prompt,
+            "suggestions": result.suggestions,
+            "warnings": result.warnings,
+            "processing_time": result.processing_time_seconds
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk processing failed: {str(e)}")
+
+
+@app.post("/api/projects/{project_id}/bulk-upload/folder")
+async def bulk_upload_folder(
+    project_id: str,
+    folder_path: str,
+):
+    """
+    Process an existing folder path on the server.
+
+    This endpoint is useful when files are already on the server
+    (e.g., mounted volumes, network shares).
+    """
+    project_dir = PROJECTS_DIR / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    source_folder = Path(folder_path)
+    if not source_folder.exists():
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_path}")
+
+    if not source_folder.is_dir():
+        raise HTTPException(status_code=400, detail="Path is not a directory")
+
+    try:
+        result = await bulk_processor.process_folder(
+            folder_path=source_folder,
+            project_id=project_id
+        )
+
+        # Save results
+        await bulk_processor.save_processing_result(result, project_dir)
+
+        return {
+            "status": "processed",
+            "source_folder": str(source_folder),
+            "images": result.images.__dict__ if result.images else None,
+            "truth_data": result.truth_data.__dict__ if result.truth_data else None,
+            "matched_pairs": len(result.matched_pairs),
+            "unmatched_images": len(result.unmatched_images),
+            "review_prompt": result.review_prompt,
+            "suggestions": result.suggestions,
+            "warnings": result.warnings,
+            "processing_time": result.processing_time_seconds
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk processing failed: {str(e)}")
+
+
+@app.get("/api/projects/{project_id}/bulk-upload/result")
+async def get_bulk_upload_result(project_id: str):
+    """Get the result of the most recent bulk upload processing."""
+    project_dir = PROJECTS_DIR / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result_file = project_dir / "bulk_processing_result.json"
+    if not result_file.exists():
+        raise HTTPException(status_code=404, detail="No bulk upload result found")
+
+    return json.loads(result_file.read_text())
+
+
+@app.post("/api/projects/{project_id}/bulk-upload/agent-review")
+async def generate_agent_review(project_id: str, agent_type: str = "claude"):
+    """
+    Generate CLI agent instructions for reviewing the bulk upload.
+
+    Returns formatted instructions for the specified agent type
+    to review and process the uploaded data.
+    """
+    project_dir = PROJECTS_DIR / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result_file = project_dir / "bulk_processing_result.json"
+    if not result_file.exists():
+        raise HTTPException(status_code=404, detail="No bulk upload result found. Run bulk-upload first.")
+
+    result_data = json.loads(result_file.read_text())
+
+    # Build a simplified result object for instruction generation
+    from app.services.bulk_processor import BulkProcessingResult, MatchedPair
+    from app.services.input_detector import ImageSet, DataFile
+
+    # Reconstruct objects for instruction generation
+    images = None
+    if result_data.get('images_count'):
+        images = ImageSet(
+            paths=[],
+            count=result_data['images_count'],
+            formats=[],
+            sample_dimensions=None,
+            total_size_mb=0
+        )
+
+    truth_data = None
+    if result_data.get('truth_data_rows'):
+        truth_data = DataFile(
+            path="",
+            format="",
+            row_count=result_data['truth_data_rows'],
+            column_count=0,
+            columns=[],
+            sample_rows=[],
+            detected_schema={}
+        )
+
+    matched_pairs = [
+        MatchedPair(
+            image_path=mp['image_path'],
+            image_name=mp['image_name'],
+            truth_data=mp['truth_data'],
+            confidence=mp['confidence']
+        )
+        for mp in result_data.get('matched_pairs', [])
+    ]
+
+    # Read review prompt from saved file
+    review_file = project_dir / "bulk_upload_review.md"
+    review_prompt = review_file.read_text() if review_file.exists() else ""
+
+    result = BulkProcessingResult(
+        project_id=project_id,
+        images=images,
+        truth_data=truth_data,
+        matched_pairs=matched_pairs,
+        unmatched_images=result_data.get('unmatched_images', []),
+        review_prompt=review_prompt,
+        suggestions=result_data.get('suggestions', []),
+        warnings=result_data.get('warnings', []),
+        processing_time_seconds=result_data.get('processing_time_seconds', 0)
+    )
+
+    instructions = await bulk_processor.generate_agent_instructions(result, agent_type)
+
+    # Save instructions to file
+    instructions_file = project_dir / f"agent_instructions_{agent_type}.md"
+    instructions_file.write_text(instructions)
+
+    return {
+        "agent_type": agent_type,
+        "instructions": instructions,
+        "saved_to": str(instructions_file)
+    }
 
 
 # ═══════════════════════════════════════════════════════════════

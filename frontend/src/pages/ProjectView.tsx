@@ -28,6 +28,7 @@ import {
   RefreshCw,
   CheckCircle,
   Sparkles,
+  Upload,
 } from 'lucide-react'
 
 export default function ProjectView() {
@@ -275,6 +276,12 @@ export default function ProjectView() {
                 <CardTitle>Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                <Link to={`/project/${projectId}/bulk-upload`} className="block">
+                  <Button variant="blue" className="w-full justify-start">
+                    <Upload className="w-4 h-4 mr-2" />
+                    Bulk Upload
+                  </Button>
+                </Link>
                 <Link to={`/project/${projectId}/train`} className="block">
                   <Button variant="red" className="w-full justify-start">
                     <Play className="w-4 h-4 mr-2" />

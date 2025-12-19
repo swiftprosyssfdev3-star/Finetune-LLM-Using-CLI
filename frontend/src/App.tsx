@@ -7,6 +7,7 @@ import {
   Terminal,
   Box,
   Sparkles,
+  Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -17,6 +18,7 @@ import ProjectView from '@/pages/ProjectView'
 import HuggingFaceBrowser from '@/pages/HuggingFaceBrowser'
 import SkillGenerator from '@/pages/SkillGenerator'
 import Training from '@/pages/Training'
+import BulkUpload from '@/pages/BulkUpload'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
@@ -96,6 +98,7 @@ function App() {
           <Route path="/new" element={<NewProject />} />
           <Route path="/project/:projectId" element={<ProjectView />} />
           <Route path="/project/:projectId/train" element={<Training />} />
+          <Route path="/project/:projectId/bulk-upload" element={<BulkUpload />} />
           <Route path="/models" element={<HuggingFaceBrowser />} />
           <Route path="/skills" element={<SkillGenerator />} />
         </Routes>

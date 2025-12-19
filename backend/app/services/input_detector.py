@@ -5,19 +5,23 @@ Automatically detect and parse any input format
 Supports:
 - Image folders/archives (jpg, png, tiff, pdf, webp, bmp)
 - Data files (xlsx, xls, csv, tsv, json, jsonl, parquet)
+- Document files (docx, md - for truth data)
 - Schema files (json with schema definition)
 - Archives (zip, tar.gz with mixed content)
 """
 
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 import json
 import re
 import zipfile
 import tarfile
 import tempfile
 import shutil
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -79,6 +83,10 @@ class InputDetector:
     DATA_EXTENSIONS = {
         '.xlsx', '.xls', '.csv', '.tsv',
         '.json', '.jsonl', '.parquet'
+    }
+
+    DOCUMENT_EXTENSIONS = {
+        '.docx', '.doc', '.md', '.markdown', '.txt'
     }
 
     def __init__(self, upload_dir: str = "./uploads"):
@@ -147,6 +155,12 @@ class InputDetector:
                     data = await self._parse_data_file(path)
                 except Exception as e:
                     warnings.append(f"Failed to parse data file {path}: {str(e)}")
+
+            elif path.suffix.lower() in self.DOCUMENT_EXTENSIONS:
+                try:
+                    data = await self._parse_document_file(path)
+                except Exception as e:
+                    warnings.append(f"Failed to parse document file {path}: {str(e)}")
 
             elif path.suffix.lower() == '.json':
                 try:
@@ -219,11 +233,12 @@ class InputDetector:
         )
 
     async def _scan_folder(self, folder: Path) -> Dict[str, Any]:
-        """Scan a folder for images, data files, and schemas."""
+        """Scan a folder for images, data files, documents, and schemas."""
 
         result = {'images': None, 'data': None, 'schema': None}
         image_paths = []
         data_files = []
+        document_files = []
 
         # Skip hidden files and directories
         for item in folder.rglob('*'):
@@ -233,6 +248,8 @@ class InputDetector:
                     image_paths.append(str(item))
                 elif ext in self.DATA_EXTENSIONS:
                     data_files.append(item)
+                elif ext in self.DOCUMENT_EXTENSIONS:
+                    document_files.append(item)
 
         # Create ImageSet if images found
         if image_paths:
@@ -251,7 +268,7 @@ class InputDetector:
                 total_size_mb=round(total_size / (1024 * 1024), 2)
             )
 
-        # Parse first data file found
+        # Parse first data file found (prefer structured formats)
         if data_files:
             # Prefer xlsx/csv over json
             data_files.sort(key=lambda f: (
@@ -261,6 +278,19 @@ class InputDetector:
             ))
             try:
                 result['data'] = await self._parse_data_file(data_files[0])
+            except Exception:
+                pass
+
+        # If no structured data found, try document files
+        if result['data'] is None and document_files:
+            # Prefer docx over markdown
+            document_files.sort(key=lambda f: (
+                0 if f.suffix in ['.docx', '.doc'] else
+                1 if f.suffix in ['.md', '.markdown'] else
+                2
+            ))
+            try:
+                result['data'] = await self._parse_document_file(document_files[0])
             except Exception:
                 pass
 
@@ -354,6 +384,293 @@ class InputDetector:
             sample_rows=rows,
             detected_schema=detected_schema
         )
+
+    async def _parse_document_file(self, path: Path) -> DataFile:
+        """Parse a document file (DOCX, Markdown) and extract truth data."""
+
+        ext = path.suffix.lower()
+        rows = []
+        columns = []
+
+        if ext in ('.docx', '.doc'):
+            rows, columns = self._parse_docx(path)
+        elif ext in ('.md', '.markdown'):
+            rows, columns = self._parse_markdown(path)
+        elif ext == '.txt':
+            rows, columns = self._parse_text(path)
+        else:
+            raise ValueError(f"Unsupported document format: {ext}")
+
+        # Detect column types
+        detected_schema = {}
+        for col in columns:
+            sample_values = [r.get(col) for r in rows if r.get(col) is not None]
+            detected_schema[col] = self._detect_type(sample_values)
+
+        return DataFile(
+            path=str(path),
+            format=ext.replace('.', ''),
+            row_count=len(rows),
+            column_count=len(columns),
+            columns=columns,
+            sample_rows=rows[:5],
+            detected_schema=detected_schema
+        )
+
+    def _parse_docx(self, path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Parse DOCX file for truth data (tables or structured content)."""
+        rows = []
+        columns = []
+
+        try:
+            from docx import Document
+            doc = Document(path)
+
+            # First try to find tables in the document
+            if doc.tables:
+                table = doc.tables[0]  # Use first table
+                # Get headers from first row
+                header_cells = table.rows[0].cells
+                columns = [cell.text.strip() for cell in header_cells]
+
+                # Get data rows
+                for row in table.rows[1:]:
+                    row_data = {}
+                    for i, cell in enumerate(row.cells):
+                        if i < len(columns):
+                            row_data[columns[i]] = cell.text.strip()
+                    rows.append(row_data)
+            else:
+                # Parse paragraphs for key-value pairs or structured content
+                current_record = {}
+                current_key = None
+
+                for para in doc.paragraphs:
+                    text = para.text.strip()
+                    if not text:
+                        if current_record:
+                            rows.append(current_record)
+                            current_record = {}
+                        continue
+
+                    # Try to detect key-value patterns
+                    if ':' in text:
+                        parts = text.split(':', 1)
+                        key = parts[0].strip()
+                        value = parts[1].strip() if len(parts) > 1 else ''
+                        if key not in columns:
+                            columns.append(key)
+                        current_record[key] = value
+                    elif '=' in text:
+                        parts = text.split('=', 1)
+                        key = parts[0].strip()
+                        value = parts[1].strip() if len(parts) > 1 else ''
+                        if key not in columns:
+                            columns.append(key)
+                        current_record[key] = value
+                    else:
+                        # Use paragraph as content field
+                        if 'content' not in columns:
+                            columns.append('content')
+                        if 'content' in current_record:
+                            current_record['content'] += '\n' + text
+                        else:
+                            current_record['content'] = text
+
+                if current_record:
+                    rows.append(current_record)
+
+                # If no structured data found, treat as single content
+                if not rows and doc.paragraphs:
+                    columns = ['content']
+                    content = '\n'.join(p.text for p in doc.paragraphs if p.text.strip())
+                    rows = [{'content': content}]
+
+        except ImportError:
+            logger.warning("python-docx not installed. Install with: pip install python-docx")
+            # Fallback: try to read as text (won't work well for .docx binary)
+            columns = ['content']
+            rows = [{'content': f"[DOCX file requires python-docx library: {path.name}]"}]
+        except Exception as e:
+            logger.warning(f"Error parsing DOCX: {e}")
+            columns = ['error', 'filename']
+            rows = [{'error': str(e), 'filename': path.name}]
+
+        return rows, columns
+
+    def _parse_markdown(self, path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Parse Markdown file for truth data (tables or structured content)."""
+        rows = []
+        columns = []
+
+        try:
+            content = path.read_text(encoding='utf-8')
+            lines = content.split('\n')
+
+            # Try to find markdown tables
+            table_start = None
+            for i, line in enumerate(lines):
+                if '|' in line and not line.strip().startswith('```'):
+                    # Check if this is a table header
+                    if table_start is None:
+                        table_start = i
+
+                    # Skip separator line
+                    if set(line.replace('|', '').replace('-', '').replace(':', '').strip()) == set():
+                        continue
+
+                    cells = [c.strip() for c in line.strip().strip('|').split('|')]
+
+                    if not columns:
+                        # First row is header
+                        columns = cells
+                    else:
+                        # Data row
+                        row_data = {}
+                        for j, cell in enumerate(cells):
+                            if j < len(columns):
+                                row_data[columns[j]] = cell
+                        if row_data:
+                            rows.append(row_data)
+
+            # If no table found, try to parse structured content
+            if not rows:
+                columns = []
+                current_record = {}
+                current_section = None
+
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        if current_record:
+                            rows.append(current_record)
+                            current_record = {}
+                        continue
+
+                    # Headers as section markers
+                    if line.startswith('#'):
+                        header = line.lstrip('#').strip()
+                        if current_section and current_record:
+                            rows.append(current_record)
+                            current_record = {}
+                        current_section = header
+                        if 'section' not in columns:
+                            columns.append('section')
+                        current_record['section'] = header
+                    # Key: value patterns
+                    elif ':' in line and not line.startswith('-'):
+                        parts = line.split(':', 1)
+                        key = parts[0].strip().strip('*_')  # Remove bold/italic
+                        value = parts[1].strip()
+                        if key not in columns:
+                            columns.append(key)
+                        current_record[key] = value
+                    # List items with filenames (common pattern)
+                    elif line.startswith('-') or line.startswith('*'):
+                        item = line[1:].strip()
+                        # Check for "filename: description" pattern
+                        if ':' in item:
+                            parts = item.split(':', 1)
+                            if 'filename' not in columns:
+                                columns.append('filename')
+                            if 'description' not in columns:
+                                columns.append('description')
+                            current_record['filename'] = parts[0].strip()
+                            current_record['description'] = parts[1].strip()
+                            rows.append(current_record)
+                            current_record = {}
+                        else:
+                            if 'item' not in columns:
+                                columns.append('item')
+                            current_record['item'] = item
+                            rows.append(current_record)
+                            current_record = {}
+                    else:
+                        # Regular text
+                        if 'content' not in columns:
+                            columns.append('content')
+                        if 'content' in current_record:
+                            current_record['content'] += ' ' + line
+                        else:
+                            current_record['content'] = line
+
+                if current_record:
+                    rows.append(current_record)
+
+            # Fallback: treat entire file as single content
+            if not rows:
+                columns = ['content']
+                rows = [{'content': content}]
+
+        except Exception as e:
+            logger.warning(f"Error parsing Markdown: {e}")
+            columns = ['error', 'filename']
+            rows = [{'error': str(e), 'filename': path.name}]
+
+        return rows, columns
+
+    def _parse_text(self, path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Parse plain text file for truth data."""
+        rows = []
+        columns = []
+
+        try:
+            content = path.read_text(encoding='utf-8')
+            lines = [l.strip() for l in content.split('\n') if l.strip()]
+
+            # Try to detect structure
+            first_line = lines[0] if lines else ''
+
+            # Tab-separated
+            if '\t' in first_line:
+                columns = first_line.split('\t')
+                for line in lines[1:]:
+                    values = line.split('\t')
+                    rows.append(dict(zip(columns, values)))
+            # Key=value per line
+            elif '=' in first_line:
+                current_record = {}
+                for line in lines:
+                    if '=' in line:
+                        parts = line.split('=', 1)
+                        key = parts[0].strip()
+                        value = parts[1].strip()
+                        if key not in columns:
+                            columns.append(key)
+                        current_record[key] = value
+                    elif not line and current_record:
+                        rows.append(current_record)
+                        current_record = {}
+                if current_record:
+                    rows.append(current_record)
+            # Key: value per line
+            elif ':' in first_line:
+                current_record = {}
+                for line in lines:
+                    if ':' in line:
+                        parts = line.split(':', 1)
+                        key = parts[0].strip()
+                        value = parts[1].strip()
+                        if key not in columns:
+                            columns.append(key)
+                        current_record[key] = value
+                    elif not line and current_record:
+                        rows.append(current_record)
+                        current_record = {}
+                if current_record:
+                    rows.append(current_record)
+            else:
+                # Line-per-record format (e.g., one label per image)
+                columns = ['content', 'line_number']
+                for i, line in enumerate(lines, 1):
+                    rows.append({'content': line, 'line_number': i})
+
+        except Exception as e:
+            logger.warning(f"Error parsing text file: {e}")
+            columns = ['error', 'filename']
+            rows = [{'error': str(e), 'filename': path.name}]
+
+        return rows, columns
 
     def _detect_type(self, values: List[Any]) -> str:
         """Detect the type of a column based on sample values."""
