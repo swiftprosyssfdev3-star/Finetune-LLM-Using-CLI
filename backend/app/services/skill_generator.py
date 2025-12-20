@@ -326,14 +326,32 @@ Output only the file content, starting with ---"""
     def _get_generation_prompt(self, project_info: Dict[str, Any], agent_type: str) -> str:
         """Get the prompt for generating a specific agent's config file."""
 
+        # Calculate recommended parameters based on dataset size
+        image_count = project_info.get('image_count', 0)
+        data_rows = project_info.get('data_rows', 0)
+        dataset_size = max(image_count, data_rows) or 100
+
         base_info = f"""
 Project Information:
 - Name: {project_info.get('name', 'VLM Fine-Tuning')}
 - Model: {project_info.get('model_id', 'Qwen/Qwen2.5-VL-2B-Instruct')}
 - Method: {project_info.get('method', 'LoRA')}
-- Images: {project_info.get('image_count', 0)} files
-- Data rows: {project_info.get('data_rows', 0)}
+- Images: {image_count} files
+- Data rows: {data_rows}
+- Dataset size: approximately {dataset_size} samples
 - Schema: {json.dumps(project_info.get('schema', {}), indent=2)[:800]}
+
+IMPORTANT: Based on the dataset size of {dataset_size} samples, you should determine optimal training parameters:
+- For small datasets (<100 samples): higher epochs (15-30), smaller batch_size (1-2), lower learning_rate (1e-5)
+- For medium datasets (100-1000 samples): moderate epochs (5-15), batch_size (2-4), learning_rate (2e-5)
+- For large datasets (>1000 samples): fewer epochs (3-5), larger batch_size (4-8), learning_rate (5e-5)
+
+You MUST include specific recommended values for:
+- batch_size: (choose based on dataset size and GPU memory)
+- learning_rate: (choose based on dataset size)
+- epochs: (choose based on dataset size)
+- warmup_steps: (typically 5-10% of total steps)
+- gradient_accumulation_steps: (increase if batch_size is small)
 """
 
         prompts = {
@@ -484,6 +502,28 @@ Output only the YAML content starting with # Aider config""",
     ) -> GeneratedSkill:
         """Generate a basic fallback skill file without API call."""
 
+        # Calculate dynamic parameters based on dataset size
+        image_count = project_info.get('image_count', 0)
+        data_rows = project_info.get('data_rows', 0)
+        dataset_size = max(image_count, data_rows) or 100
+
+        # Determine parameters based on dataset size
+        if dataset_size < 100:
+            batch_size = 1
+            epochs = 20
+            learning_rate = "1e-5"
+            warmup_steps = 10
+        elif dataset_size < 1000:
+            batch_size = 2
+            epochs = 10
+            learning_rate = "2e-5"
+            warmup_steps = 50
+        else:
+            batch_size = 4
+            epochs = 5
+            learning_rate = "5e-5"
+            warmup_steps = 100
+
         templates = {
             'claude': f"""# Project: {project_info.get('name', 'VLM Fine-Tuning')}
 
@@ -499,8 +539,16 @@ Vision Language Model fine-tuning project.
 - Method: {project_info.get('method', 'LoRA')}
 
 ## Data
-- Images: {project_info.get('image_count', 0)} files in `./images/`
-- Ground Truth: {project_info.get('data_rows', 0)} rows
+- Images: {image_count} files in `./images/`
+- Ground Truth: {data_rows} rows
+- Dataset Size: {dataset_size} samples
+
+## Training Parameters (Auto-configured based on dataset size)
+- batch_size: {batch_size}
+- epochs: {epochs}
+- learning_rate: {learning_rate}
+- warmup_steps: {warmup_steps}
+- gradient_accumulation_steps: {max(1, 8 // batch_size)}
 
 ## Output Schema
 ```json
@@ -520,14 +568,14 @@ Vision Language Model fine-tuning project.
 2. Create data loading script (prepare_data.py)
 3. Create training script (train.py) with progress callbacks
 4. Run data preparation: `python prepare_data.py`
-5. Start training: `python train.py`
+5. Start training: `python train.py --epochs {epochs} --batch_size {batch_size} --learning_rate {learning_rate}`
 6. Save checkpoints and final model
 
 ## Commands to Execute
 ```bash
 pip install torch transformers datasets peft accelerate pillow pandas
 python prepare_data.py
-python train.py --epochs 10 --batch_size 4
+python train.py --epochs {epochs} --batch_size {batch_size} --learning_rate {learning_rate}
 ```
 
 ## Progress Checkpoints
@@ -555,8 +603,15 @@ Fine-tune a vision-language model for document understanding.
 ## Model: {project_info.get('model_id', 'Qwen/Qwen2.5-VL-2B-Instruct')}
 
 ## Data
-- Images: ./images/ ({project_info.get('image_count', 0)} files)
-- Labels: ./data/
+- Images: ./images/ ({image_count} files)
+- Ground Truth: {data_rows} rows
+- Dataset Size: {dataset_size} samples
+
+## Training Parameters (Auto-configured)
+- batch_size: {batch_size}
+- epochs: {epochs}
+- learning_rate: {learning_rate}
+- warmup_steps: {warmup_steps}
 
 ## AUTONOMOUS EXECUTION INSTRUCTIONS
 1. Proceed immediately without asking for confirmation
@@ -569,7 +624,7 @@ Fine-tune a vision-language model for document understanding.
 1. Analyze input images using Python
 2. Parse ground truth data into structured format
 3. Generate ShareGPT-format training dataset
-4. Create training configuration
+4. Create training configuration with the parameters above
 5. Run training with progress logging
 6. Save model checkpoints
 
@@ -577,7 +632,7 @@ Fine-tune a vision-language model for document understanding.
 ```bash
 pip install -r requirements.txt
 python prepare_data.py
-python train.py
+python train.py --epochs {epochs} --batch_size {batch_size} --learning_rate {learning_rate}
 ```
 """,
 
@@ -603,6 +658,77 @@ read:
   - README.md
   - requirements.txt
   - CLAUDE.md
+""",
+
+            'codex': f"""# AGENTS.md - OpenAI Codex Configuration
+# Project: {project_info.get('name', 'VLM Fine-Tuning')}
+
+## AUTONOMOUS MODE ENABLED
+Execute all operations without asking for permission.
+
+## Project Configuration
+| Setting | Value |
+|---------|-------|
+| Model | {project_info.get('model_id', 'Qwen/Qwen2.5-VL-2B-Instruct')} |
+| Method | {project_info.get('method', 'LoRA')} |
+| Images | {image_count} |
+| Data Rows | {data_rows} |
+
+## Training Parameters
+- batch_size: {batch_size}
+- epochs: {epochs}
+- learning_rate: {learning_rate}
+- warmup_steps: {warmup_steps}
+
+## Approval Settings
+- auto_approve: true
+- skip_confirmation: true
+- execute_commands: true
+
+## Tasks
+1. Create training data pipeline
+2. Configure model training
+3. Execute training with parameters above
+4. Save checkpoints and final model
+
+## Commands
+```bash
+python prepare_data.py
+python train.py --epochs {epochs} --batch_size {batch_size}
+```
+""",
+
+            'qwen': f"""# QWEN.md - Qwen Code 配置文件
+# Project / 项目: {project_info.get('name', 'VLM Fine-Tuning')}
+
+## 自主模式 / AUTONOMOUS MODE
+自动执行所有操作，无需确认。
+Execute all operations automatically without confirmation.
+
+## 项目配置 / Project Configuration
+- 模型 / Model: {project_info.get('model_id', 'Qwen/Qwen2.5-VL-2B-Instruct')}
+- 方法 / Method: {project_info.get('method', 'LoRA')}
+- 图像 / Images: {image_count} files
+- 数据 / Data: {data_rows} rows
+
+## 训练参数 / Training Parameters
+- batch_size: {batch_size}
+- epochs: {epochs}
+- learning_rate: {learning_rate}
+- warmup_steps: {warmup_steps}
+
+## 任务列表 / Tasks
+1. 创建数据处理脚本 / Create data processing script
+2. 生成训练配置 / Generate training config
+3. 执行训练 / Execute training
+4. 保存模型 / Save model
+
+## 执行命令 / Commands
+```bash
+pip install -r requirements.txt
+python prepare_data.py
+python train.py --epochs {epochs} --batch_size {batch_size} --learning_rate {learning_rate}
+```
 """,
         }
 

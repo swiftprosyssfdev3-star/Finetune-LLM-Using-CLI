@@ -52,6 +52,22 @@ const CLI_AGENTS = [
     features: ['Large context', 'Multi-modal', 'Code analysis'],
   },
   {
+    id: 'codex',
+    name: 'OpenAI Codex',
+    description: 'OpenAI\'s code-focused model',
+    icon: '🟣',
+    color: 'bg-purple-500',
+    features: ['Code completion', 'Multi-language', 'API integration'],
+  },
+  {
+    id: 'qwen',
+    name: 'Qwen Code',
+    description: 'Alibaba\'s coding assistant with bilingual support',
+    icon: '🟡',
+    color: 'bg-bauhaus-yellow',
+    features: ['Bilingual support', 'Code generation', 'Fast inference'],
+  },
+  {
     id: 'aider',
     name: 'Aider',
     description: 'Open source pair programming assistant',
@@ -205,40 +221,19 @@ export default function NewProject() {
     },
     onSuccess: (skills) => {
       setIsGenerating(false)
-      // Generate 3 variations based on the skills
+      // LLM has already determined optimal parameters based on dataset size
+      // Create a single variation with the auto-configured parameters
       const variations: SkillVariation[] = [
         {
-          id: 'speed',
-          name: 'Speed Optimized',
-          description: 'Prioritizes quick iterations with smaller batch sizes',
-          skills: skills.map((s) => ({
-            ...s,
-            content: s.content.replace(/batch_size: \d+/, 'batch_size: 2')
-              .replace(/epochs: \d+/, 'epochs: 5'),
-          })),
-          focus: 'speed',
-        },
-        {
-          id: 'balanced',
-          name: 'Balanced',
-          description: 'Recommended settings for most use cases',
+          id: 'auto',
+          name: 'Auto-Configured',
+          description: 'Parameters automatically optimized by LLM based on your dataset size',
           skills,
           focus: 'balanced',
         },
-        {
-          id: 'quality',
-          name: 'Quality Focused',
-          description: 'Higher epochs and larger batches for better results',
-          skills: skills.map((s) => ({
-            ...s,
-            content: s.content.replace(/batch_size: \d+/, 'batch_size: 8')
-              .replace(/epochs: \d+/, 'epochs: 15'),
-          })),
-          focus: 'quality',
-        },
       ]
       setSkillVariations(variations)
-      setSelectedVariation('balanced')
+      setSelectedVariation('auto')
       setStep('skills')
     },
     onError: () => {
@@ -582,15 +577,24 @@ export default function NewProject() {
                 <ArrowLeft className="w-5 h-5 mr-2" />
                 Back
               </Button>
-              <Button
-                variant="blue"
-                onClick={handleUpload}
-                disabled={!canProceed() || uploadMutation.isPending}
-                loading={uploadMutation.isPending}
-              >
-                Upload & Analyze
-                <ArrowRight className="w-5 h-5 ml-2" />
-              </Button>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setStep('cli')}
+                >
+                  Skip Upload
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </Button>
+                <Button
+                  variant="blue"
+                  onClick={handleUpload}
+                  disabled={(imageFiles.length === 0 && groundTruthFiles.length === 0) || uploadMutation.isPending}
+                  loading={uploadMutation.isPending}
+                >
+                  Upload & Analyze
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -698,7 +702,9 @@ export default function NewProject() {
                         >
                           <div>
                             <div className="font-medium text-bauhaus-black">
-                              {selectedModel ? selectedModel.replace('--', '/') : 'Select a model...'}
+                              {selectedModel
+                                ? (cachedModels.find(m => m.name === selectedModel)?.model_id || selectedModel.replace('--', '/'))
+                                : 'Select a model...'}
                             </div>
                             <div className="text-sm text-bauhaus-gray">
                               {cachedModels.find(m => m.name === selectedModel)
@@ -734,10 +740,10 @@ export default function NewProject() {
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <div className="font-medium text-bauhaus-black">
-                                      {model.name.replace('--', '/')}
+                                      {model.model_id || model.name.replace('--', '/')}
                                     </div>
-                                    <div className="text-sm text-bauhaus-gray">
-                                      {model.path}
+                                    <div className="text-sm text-bauhaus-gray truncate max-w-xs">
+                                      {model.path.split('/').slice(-2).join('/')}
                                     </div>
                                   </div>
                                   <span className="text-xs bg-terminal-green/10 text-terminal-green px-2 py-1 rounded">
@@ -811,50 +817,35 @@ export default function NewProject() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Sparkles className="w-5 h-5" />
-                  Select Configuration Variation
+                  Generated Configuration
                 </CardTitle>
                 <CardDescription>
-                  Choose the setup that best fits your needs
+                  Training parameters have been automatically optimized based on your dataset
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   {skillVariations.map((variation) => (
-                    <button
+                    <div
                       key={variation.id}
-                      onClick={() => setSelectedVariation(variation.id)}
-                      className={cn(
-                        'p-6 border-2 text-left transition-all',
-                        selectedVariation === variation.id
-                          ? 'border-bauhaus-yellow-dark bg-bauhaus-yellow/10'
-                          : 'border-bauhaus-silver hover:border-bauhaus-charcoal'
-                      )}
+                      className="p-6 border-2 border-terminal-green bg-terminal-green/5"
                     >
                       <div className="flex items-center justify-between mb-3">
                         <div className="font-bold text-bauhaus-black">
                           {variation.name}
                         </div>
-                        {variation.focus === 'balanced' && (
-                          <Badge variant="green" size="sm">Recommended</Badge>
-                        )}
+                        <Badge variant="green" size="sm">LLM Optimized</Badge>
                       </div>
                       <p className="text-sm text-bauhaus-gray mb-4">
                         {variation.description}
                       </p>
                       <div className="text-xs text-bauhaus-charcoal">
                         <div className="flex items-center gap-2">
-                          <span className={cn(
-                            'w-2 h-2 rounded-full',
-                            variation.focus === 'speed' ? 'bg-terminal-green' :
-                            variation.focus === 'quality' ? 'bg-bauhaus-blue' :
-                            'bg-bauhaus-yellow-dark'
-                          )} />
-                          {variation.focus === 'speed' ? 'Fast iterations' :
-                           variation.focus === 'quality' ? 'High quality output' :
-                           'Best of both worlds'}
+                          <Sparkles className="w-3 h-3 text-terminal-green" />
+                          Parameters configured based on {detection?.images?.count || 0} images and {detection?.data?.row_count || 0} data rows
                         </div>
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
 

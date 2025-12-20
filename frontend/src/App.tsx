@@ -1,6 +1,5 @@
-import { Routes, Route, Link, useLocation } from 'react-router-dom'
+import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import {
-  Home,
   FolderPlus,
   Search,
   Settings,
@@ -11,7 +10,6 @@ import {
 import { cn } from '@/lib/utils'
 
 // Pages
-import Welcome from '@/pages/Welcome'
 import Dashboard from '@/pages/Dashboard'
 import NewProject from '@/pages/NewProject'
 import ProjectView from '@/pages/ProjectView'
@@ -20,7 +18,6 @@ import Training from '@/pages/Training'
 import SettingsPage from '@/pages/Settings'
 
 const navigation = [
-  { name: 'Home', href: '/home', icon: Home },
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'New Project', href: '/new', icon: FolderPlus },
   { name: 'Model Browser', href: '/models', icon: Search },
@@ -30,12 +27,9 @@ const navigation = [
 function Sidebar() {
   const location = useLocation()
 
-  // Hide sidebar on welcome page and during the main project flow
+  // Hide sidebar during focused flows
   const hideSidebarPaths = [
-    '/',
-    '/home',
     '/new',      // New project wizard
-    '/settings', // Settings during onboarding
     '/models',   // Model browser
   ]
 
@@ -51,7 +45,7 @@ function Sidebar() {
     <div className="w-64 bg-white border-r border-bauhaus-silver h-screen fixed left-0 top-0 flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-bauhaus-silver">
-        <Link to="/home" className="flex items-center gap-3 hover:opacity-80 transition">
+        <Link to="/dashboard" className="flex items-center gap-3 hover:opacity-80 transition">
           <div className="w-10 h-10 bg-bauhaus-red flex items-center justify-center">
             <Box className="w-6 h-6 text-white" />
           </div>
@@ -68,10 +62,7 @@ function Sidebar() {
       <nav className="flex-1 p-4">
         <ul className="space-y-1">
           {navigation.map((item) => {
-            const isActive =
-              item.href === '/home'
-                ? location.pathname === '/home'
-                : location.pathname.startsWith(item.href)
+            const isActive = location.pathname.startsWith(item.href)
 
             return (
               <li key={item.name}>
@@ -109,10 +100,7 @@ function App() {
 
   // Pages that don't show sidebar (focused flow pages)
   const noSidebarPaths = [
-    '/',
-    '/home',
     '/new',
-    '/settings',
     '/models',
   ]
   const isTrainingPage = location.pathname.includes('/train')
@@ -124,8 +112,9 @@ function App() {
 
       <main className={cn('flex-1', hasSidebar && 'ml-64')}>
         <Routes>
-          <Route path="/" element={<Welcome />} />
-          <Route path="/home" element={<Welcome />} />
+          {/* Redirect root and /home to dashboard - no welcome page needed */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/home" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/new" element={<NewProject />} />
           <Route path="/project/:projectId" element={<ProjectView />} />

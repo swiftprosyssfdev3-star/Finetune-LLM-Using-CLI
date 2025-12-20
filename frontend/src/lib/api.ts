@@ -299,7 +299,7 @@ export async function getDownloadStatus(downloadId: string): Promise<DownloadPro
   return response.json();
 }
 
-export async function getCachedModels(): Promise<Array<{ name: string; path: string; size_mb: number }>> {
+export async function getCachedModels(): Promise<Array<{ name: string; model_id: string; path: string; size_mb: number }>> {
   const response = await fetch(`${API_BASE}/hf/cached`);
   const data = await response.json();
   return data.models;
