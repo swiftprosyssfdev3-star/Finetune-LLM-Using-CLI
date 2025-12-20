@@ -11,13 +11,14 @@ Autonomous multi-agent platform for VLM fine-tuning with:
 from fastapi import FastAPI, WebSocket, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 import json
 import os
 import uuid
 import shutil
+import asyncio
 from datetime import datetime
 
 from app.services.huggingface_browser import hf_browser
@@ -47,6 +48,9 @@ MODELS_DIR = Path("./models/cache")
 SETTINGS_FILE = Path("./settings.json")
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Download progress tracking
+download_progress: Dict[str, Dict[str, Any]] = {}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -274,15 +278,130 @@ async def download_model(
     local_dir: Optional[str] = None,
     project_id: Optional[str] = None,
 ):
-    """Download a model from HuggingFace."""
+    """Start a model download from HuggingFace and return immediately with download_id."""
     try:
         if project_id and not local_dir:
             local_dir = str(PROJECTS_DIR / project_id / "model")
 
-        path = await hf_browser.download_model(model_id, local_dir)
-        return {"status": "completed", "path": path, "model_id": model_id}
+        # Create a unique download ID
+        download_id = f"{model_id.replace('/', '--')}_{uuid.uuid4().hex[:8]}"
+
+        # Initialize progress tracking
+        download_progress[download_id] = {
+            "model_id": model_id,
+            "status": "starting",
+            "progress": 0,
+            "downloaded_files": 0,
+            "total_files": 0,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "current_file": "",
+            "path": local_dir,
+            "error": None,
+        }
+
+        # Start download in background
+        asyncio.create_task(_download_model_with_progress(download_id, model_id, local_dir))
+
+        return {
+            "status": "started",
+            "download_id": download_id,
+            "model_id": model_id,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _download_model_with_progress(download_id: str, model_id: str, local_dir: Optional[str]):
+    """Background task to download model and track progress."""
+    try:
+        # Get model info to calculate total size
+        details = await hf_browser.get_model_details(model_id)
+        total_files = len(details.files)
+        total_bytes = details.total_size_bytes
+
+        download_progress[download_id].update({
+            "status": "downloading",
+            "total_files": total_files,
+            "total_bytes": total_bytes,
+        })
+
+        # Download the model
+        path = await hf_browser.download_model(model_id, local_dir)
+
+        # Mark as complete
+        download_progress[download_id].update({
+            "status": "completed",
+            "progress": 100,
+            "downloaded_files": total_files,
+            "downloaded_bytes": total_bytes,
+            "path": path,
+        })
+    except Exception as e:
+        download_progress[download_id].update({
+            "status": "error",
+            "error": str(e),
+        })
+
+
+@app.get("/api/hf/download/{download_id}/progress")
+async def get_download_progress_sse(download_id: str):
+    """SSE endpoint for download progress updates."""
+
+    async def event_generator():
+        while True:
+            if download_id not in download_progress:
+                yield f"data: {json.dumps({'error': 'Download not found'})}\n\n"
+                break
+
+            progress = download_progress[download_id]
+            yield f"data: {json.dumps(progress)}\n\n"
+
+            if progress["status"] in ["completed", "error"]:
+                # Clean up after a short delay
+                await asyncio.sleep(1)
+                if download_id in download_progress:
+                    del download_progress[download_id]
+                break
+
+            # Poll the actual downloaded files to update progress
+            if progress["status"] == "downloading":
+                path = progress.get("path")
+                if path:
+                    local_path = Path(path)
+                    if local_path.exists():
+                        downloaded_files = list(local_path.rglob("*"))
+                        downloaded_bytes = sum(f.stat().st_size for f in downloaded_files if f.is_file())
+                        file_count = len([f for f in downloaded_files if f.is_file()])
+
+                        total_bytes = progress["total_bytes"] or 1
+                        progress_pct = min(int((downloaded_bytes / total_bytes) * 100), 99)
+
+                        download_progress[download_id].update({
+                            "downloaded_files": file_count,
+                            "downloaded_bytes": downloaded_bytes,
+                            "progress": progress_pct,
+                        })
+
+            await asyncio.sleep(1)  # Update every second
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.get("/api/hf/download/{download_id}/status")
+async def get_download_status(download_id: str):
+    """Get current download status (non-streaming)."""
+    if download_id not in download_progress:
+        raise HTTPException(status_code=404, detail="Download not found")
+    return download_progress[download_id]
 
 
 @app.get("/api/hf/cached")
