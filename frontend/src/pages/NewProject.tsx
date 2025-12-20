@@ -7,6 +7,7 @@ import {
   getSettings,
   generateSkillsWithSettings,
   updateProject,
+  getCachedModels,
   type DetectionResult,
   type GeneratedSkill,
 } from '@/lib/api'
@@ -136,7 +137,7 @@ export default function NewProject() {
   const [selectedVariation, setSelectedVariation] = useState<string | null>(null)
 
   // Model selection state
-  const [selectedModel, setSelectedModel] = useState<string>(VLM_MODELS[0].id)
+  const [selectedModel, setSelectedModel] = useState<string>('')
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
 
@@ -144,6 +145,12 @@ export default function NewProject() {
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
+  })
+
+  // Get cached/downloaded models
+  const { data: cachedModels } = useQuery({
+    queryKey: ['cached-models'],
+    queryFn: getCachedModels,
   })
 
   const hasApiConfigured = !!(
@@ -172,17 +179,20 @@ export default function NewProject() {
     mutationFn: async () => {
       setIsGenerating(true)
 
+      // Convert model name format from 'org--model' to 'org/model'
+      const modelId = selectedModel.replace('--', '/')
+
       // First, update the project with the selected model
       if (projectId) {
         await updateProject(projectId, {
-          model_id: selectedModel,
+          model_id: modelId,
           method: settings?.training?.method || 'lora',
         })
       }
 
       const projectInfo = {
         name: projectName,
-        model_id: selectedModel,
+        model_id: modelId,
         method: settings?.training?.method || 'lora',
         image_count: detection?.images?.count || 0,
         data_rows: detection?.data?.row_count || 0,
@@ -305,7 +315,7 @@ export default function NewProject() {
       case 'upload':
         return imageFiles.length > 0 || groundTruthFiles.length > 0
       case 'cli':
-        return selectedCli !== null
+        return selectedCli !== null && selectedModel.length > 0
       case 'skills':
         return selectedVariation !== null
       default:
@@ -655,68 +665,85 @@ export default function NewProject() {
                         Select Model to Fine-tune
                       </h4>
                     </div>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowModelDropdown(!showModelDropdown)}
-                        className="w-full p-3 border-2 border-bauhaus-charcoal bg-white text-left flex items-center justify-between"
-                      >
-                        <div>
-                          <div className="font-medium text-bauhaus-black">
-                            {VLM_MODELS.find(m => m.id === selectedModel)?.name || selectedModel}
+                    {cachedModels && cachedModels.length > 0 ? (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setShowModelDropdown(!showModelDropdown)}
+                          className="w-full p-3 border-2 border-bauhaus-charcoal bg-white text-left flex items-center justify-between"
+                        >
+                          <div>
+                            <div className="font-medium text-bauhaus-black">
+                              {selectedModel ? selectedModel.replace('--', '/') : 'Select a model...'}
+                            </div>
+                            <div className="text-sm text-bauhaus-gray">
+                              {cachedModels.find(m => m.name === selectedModel)
+                                ? `${(cachedModels.find(m => m.name === selectedModel)!.size_mb / 1024).toFixed(1)} GB downloaded`
+                                : 'Choose from your downloaded models'}
+                            </div>
                           </div>
-                          <div className="text-sm text-bauhaus-gray">
-                            {VLM_MODELS.find(m => m.id === selectedModel)?.description}
+                          <div className="flex items-center gap-2">
+                            {selectedModel && (
+                              <Badge variant="green" size="sm">Downloaded</Badge>
+                            )}
+                            <ChevronDown className={cn(
+                              "w-5 h-5 text-bauhaus-gray transition-transform",
+                              showModelDropdown && "rotate-180"
+                            )} />
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs bg-bauhaus-blue/10 text-bauhaus-blue px-2 py-1 rounded">
-                            {VLM_MODELS.find(m => m.id === selectedModel)?.vram}
-                          </span>
-                          <ChevronDown className={cn(
-                            "w-5 h-5 text-bauhaus-gray transition-transform",
-                            showModelDropdown && "rotate-180"
-                          )} />
-                        </div>
-                      </button>
-                      {showModelDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border-2 border-bauhaus-charcoal shadow-lg max-h-64 overflow-auto">
-                          {VLM_MODELS.map((model) => (
-                            <button
-                              key={model.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedModel(model.id)
-                                setShowModelDropdown(false)
-                              }}
-                              className={cn(
-                                "w-full p-3 text-left hover:bg-bauhaus-light transition-colors border-b last:border-b-0",
-                                selectedModel === model.id && "bg-bauhaus-blue/5"
-                              )}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="font-medium text-bauhaus-black">
-                                    {model.name}
+                        </button>
+                        {showModelDropdown && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border-2 border-bauhaus-charcoal shadow-lg max-h-64 overflow-auto">
+                            {cachedModels.map((model) => (
+                              <button
+                                key={model.name}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedModel(model.name)
+                                  setShowModelDropdown(false)
+                                }}
+                                className={cn(
+                                  "w-full p-3 text-left hover:bg-bauhaus-light transition-colors border-b last:border-b-0",
+                                  selectedModel === model.name && "bg-bauhaus-blue/5"
+                                )}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="font-medium text-bauhaus-black">
+                                      {model.name.replace('--', '/')}
+                                    </div>
+                                    <div className="text-sm text-bauhaus-gray">
+                                      {model.path}
+                                    </div>
                                   </div>
-                                  <div className="text-sm text-bauhaus-gray">
-                                    {model.description}
-                                  </div>
+                                  <span className="text-xs bg-terminal-green/10 text-terminal-green px-2 py-1 rounded">
+                                    {(model.size_mb / 1024).toFixed(1)} GB
+                                  </span>
                                 </div>
-                                <span className="text-xs bg-bauhaus-blue/10 text-bauhaus-blue px-2 py-1 rounded">
-                                  {model.vram}
-                                </span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-4 border-2 border-dashed border-bauhaus-silver text-center">
+                        <Cpu className="w-8 h-8 mx-auto text-bauhaus-gray mb-2" />
+                        <p className="text-bauhaus-charcoal font-medium mb-1">No models downloaded yet</p>
+                        <p className="text-sm text-bauhaus-gray mb-3">
+                          Download a model from the HuggingFace Browser first
+                        </p>
+                        <Link to="/models">
+                          <Button variant="blue" size="sm">
+                            Browse & Download Models
+                          </Button>
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Generate Skills Button - appears after model selection */}
-                {selectedCli && (
+                {selectedCli && selectedModel && (
                   <div className="mt-4 p-4 bg-bauhaus-light border-2 border-bauhaus-silver">
                     <div className="flex items-center justify-between">
                       <div>
@@ -725,7 +752,7 @@ export default function NewProject() {
                         </h4>
                         <p className="text-sm text-bauhaus-gray">
                           {hasApiConfigured
-                            ? `Create ${selectedCli.toUpperCase()} configuration for ${VLM_MODELS.find(m => m.id === selectedModel)?.name}`
+                            ? `Create ${selectedCli.toUpperCase()} configuration for ${selectedModel.replace('--', '/')}`
                             : 'Configure API in Settings first to generate skills'}
                         </p>
                       </div>
@@ -869,9 +896,13 @@ export default function NewProject() {
                   <div className="p-4 bg-bauhaus-light col-span-2">
                     <div className="text-sm text-bauhaus-gray">Model to Fine-tune</div>
                     <div className="font-bold text-bauhaus-black">
-                      {VLM_MODELS.find(m => m.id === selectedModel)?.name || selectedModel}
+                      {selectedModel.replace('--', '/')}
                     </div>
-                    <div className="text-xs text-bauhaus-gray mt-1">{selectedModel}</div>
+                    {cachedModels?.find(m => m.name === selectedModel) && (
+                      <div className="text-xs text-bauhaus-gray mt-1">
+                        {(cachedModels.find(m => m.name === selectedModel)!.size_mb / 1024).toFixed(1)} GB • Downloaded
+                      </div>
+                    )}
                   </div>
                   {detection?.images && (
                     <div className="p-4 bg-bauhaus-light">
