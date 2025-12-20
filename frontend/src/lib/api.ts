@@ -100,7 +100,7 @@ export interface SkillConfig {
 export interface GeneratedSkill {
   filename: string;
   content: string;
-  agent: string;
+  agent_type: string;
 }
 
 export interface AppSettings {
@@ -222,13 +222,80 @@ export async function getModelDetails(modelId: string): Promise<ModelDetails> {
   return response.json();
 }
 
-export async function downloadModel(modelId: string, projectId?: string): Promise<{ status: string; path: string }> {
+export interface DownloadProgress {
+  model_id: string;
+  status: 'starting' | 'downloading' | 'completed' | 'error';
+  progress: number;
+  downloaded_files: number;
+  total_files: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  current_file: string;
+  path: string | null;
+  error: string | null;
+}
+
+export interface DownloadStartResult {
+  status: string;
+  download_id: string;
+  model_id: string;
+}
+
+export async function downloadModel(modelId: string, projectId?: string): Promise<DownloadStartResult> {
   const params = new URLSearchParams({ model_id: modelId });
   if (projectId) params.append('project_id', projectId);
 
   const response = await fetch(`${API_BASE}/hf/download?${params}`, {
     method: 'POST',
   });
+  return response.json();
+}
+
+export function subscribeToDownloadProgress(
+  downloadId: string,
+  onProgress: (progress: DownloadProgress) => void,
+  onComplete: (result: DownloadProgress) => void,
+  onError: (error: string) => void
+): () => void {
+  const eventSource = new EventSource(`${API_BASE}/hf/download/${downloadId}/progress`);
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data: DownloadProgress = JSON.parse(event.data);
+
+      if (data.error && data.status !== 'error') {
+        eventSource.close();
+        onError(data.error);
+        return;
+      }
+
+      if (data.status === 'completed') {
+        onComplete(data);
+        eventSource.close();
+      } else if (data.status === 'error') {
+        onError(data.error || 'Download failed');
+        eventSource.close();
+      } else {
+        onProgress(data);
+      }
+    } catch (e) {
+      console.error('Error parsing download progress:', e);
+    }
+  };
+
+  eventSource.onerror = () => {
+    eventSource.close();
+    onError('Connection to download progress lost');
+  };
+
+  // Return cleanup function
+  return () => {
+    eventSource.close();
+  };
+}
+
+export async function getDownloadStatus(downloadId: string): Promise<DownloadProgress> {
+  const response = await fetch(`${API_BASE}/hf/download/${downloadId}/status`);
   return response.json();
 }
 
@@ -243,6 +310,18 @@ export async function getSkillPresets(): Promise<Record<string, { name: string; 
   const response = await fetch(`${API_BASE}/skills/presets`);
   const data = await response.json();
   return data.presets;
+}
+
+export async function saveProjectSkills(
+  projectId: string,
+  skills: Array<{ filename: string; content: string; agent?: string }>
+): Promise<{ status: string; files: string[] }> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/skills/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(skills),
+  });
+  return response.json();
 }
 
 export async function configureSkillGenerator(config: SkillConfig): Promise<void> {
