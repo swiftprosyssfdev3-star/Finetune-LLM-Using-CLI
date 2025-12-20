@@ -8,6 +8,7 @@ import {
   generateSkillsWithSettings,
   updateProject,
   getCachedModels,
+  saveProjectSkills,
   type DetectionResult,
   type GeneratedSkill,
 } from '@/lib/api'
@@ -294,6 +295,29 @@ export default function NewProject() {
   const handleGenerateSkills = () => {
     if (selectedCli && hasApiConfigured) {
       generateSkillsMutation.mutate()
+    }
+  }
+
+  const saveSkillsMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId || !selectedVariation) return
+
+      const selectedSkills = skillVariations.find(v => v.id === selectedVariation)?.skills || []
+
+      // Save skills to project
+      await saveProjectSkills(projectId, selectedSkills.map(s => ({
+        filename: s.filename,
+        content: s.content,
+      })))
+    },
+    onSuccess: () => {
+      setStep('ready')
+    },
+  })
+
+  const handleSaveAndContinue = () => {
+    if (projectId && selectedVariation) {
+      saveSkillsMutation.mutate()
     }
   }
 
@@ -858,8 +882,9 @@ export default function NewProject() {
               </Button>
               <Button
                 variant="yellow"
-                onClick={() => setStep('ready')}
-                disabled={!selectedVariation}
+                onClick={handleSaveAndContinue}
+                disabled={!selectedVariation || saveSkillsMutation.isPending}
+                loading={saveSkillsMutation.isPending}
               >
                 Save & Continue
                 <ArrowRight className="w-5 h-5 ml-2" />

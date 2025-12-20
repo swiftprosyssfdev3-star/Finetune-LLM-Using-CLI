@@ -100,7 +100,7 @@ export interface SkillConfig {
 export interface GeneratedSkill {
   filename: string;
   content: string;
-  agent: string;
+  agent_type: string;
 }
 
 export interface AppSettings {
@@ -310,6 +310,18 @@ export async function getSkillPresets(): Promise<Record<string, { name: string; 
   const response = await fetch(`${API_BASE}/skills/presets`);
   const data = await response.json();
   return data.presets;
+}
+
+export async function saveProjectSkills(
+  projectId: string,
+  skills: Array<{ filename: string; content: string; agent?: string }>
+): Promise<{ status: string; files: string[] }> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/skills/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(skills),
+  });
+  return response.json();
 }
 
 export async function configureSkillGenerator(config: SkillConfig): Promise<void> {

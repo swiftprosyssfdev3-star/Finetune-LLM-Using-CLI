@@ -43,9 +43,10 @@ app.add_middleware(
 )
 
 # Ensure directories exist
-PROJECTS_DIR = Path("./projects")
-MODELS_DIR = Path("./models/cache")
-SETTINGS_FILE = Path("./settings.json")
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # Get project root
+PROJECTS_DIR = BASE_DIR / "projects"
+MODELS_DIR = BASE_DIR / "models" / "cache"
+SETTINGS_FILE = BASE_DIR / "settings.json"
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -599,6 +600,34 @@ async def save_schema(project_id: str, schema: Dict[str, Any]):
     schema_file.write_text(json.dumps(schema, indent=2))
 
     return {"status": "saved", "path": str(schema_file)}
+
+
+@app.post("/api/projects/{project_id}/skills/save")
+async def save_project_skills(project_id: str, skills: List[Dict[str, Any]]):
+    """Save skill files directly to a project."""
+    project_dir = PROJECTS_DIR / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    saved_files = []
+    for skill in skills:
+        filename = skill.get("filename", "AGENT.md")
+        content = skill.get("content", "")
+
+        # Determine file path - handle .claude/ paths
+        if filename.startswith("."):
+            file_path = project_dir / filename
+        else:
+            file_path = project_dir / filename
+
+        # Create parent directories if needed
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write the file
+        file_path.write_text(content)
+        saved_files.append(str(file_path))
+
+    return {"status": "saved", "files": saved_files}
 
 
 # ═══════════════════════════════════════════════════════════════
