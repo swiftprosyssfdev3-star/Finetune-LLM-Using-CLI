@@ -4,6 +4,40 @@
 
 const API_BASE = '/api';
 
+/**
+ * Custom error class for API errors
+ */
+export class APIError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public statusText: string,
+    public body?: unknown
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+/**
+ * Helper function to handle API responses consistently
+ */
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    let errorBody: unknown;
+    try {
+      errorBody = await response.json();
+    } catch {
+      // Response body is not JSON
+    }
+    const message = typeof errorBody === 'object' && errorBody && 'detail' in errorBody
+      ? String((errorBody as { detail: unknown }).detail)
+      : `API request failed: ${response.statusText}`;
+    throw new APIError(message, response.status, response.statusText, errorBody);
+  }
+  return response.json();
+}
+
 // Types
 export interface Project {
   id: string;
@@ -132,29 +166,29 @@ export interface AppSettings {
 // Projects
 export async function listProjects(): Promise<Project[]> {
   const response = await fetch(`${API_BASE}/projects`);
-  const data = await response.json();
+  const data = await handleResponse<{ projects: Project[] }>(response);
   return data.projects;
 }
 
 export async function createProject(name: string, description?: string): Promise<Project> {
-  const params = new URLSearchParams({ name });
-  if (description) params.append('description', description);
-
-  const response = await fetch(`${API_BASE}/projects?${params}`, {
+  const response = await fetch(`${API_BASE}/projects`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description }),
   });
-  const data = await response.json();
+  const data = await handleResponse<{ project: Project }>(response);
   return data.project;
 }
 
 export async function getProject(projectId: string): Promise<Project> {
   const response = await fetch(`${API_BASE}/projects/${projectId}`);
-  const data = await response.json();
+  const data = await handleResponse<{ project: Project }>(response);
   return data.project;
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  await fetch(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' });
+  const response = await fetch(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' });
+  await handleResponse<{ status: string }>(response);
 }
 
 export async function updateProject(projectId: string, updates: Partial<Project>): Promise<Project> {
@@ -163,7 +197,7 @@ export async function updateProject(projectId: string, updates: Partial<Project>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
   });
-  const data = await response.json();
+  const data = await handleResponse<{ project: Project }>(response);
   return data.project;
 }
 
@@ -176,22 +210,23 @@ export async function uploadFiles(projectId: string, files: File[]): Promise<Det
     method: 'POST',
     body: formData,
   });
-  return response.json();
+  return handleResponse<DetectionResult>(response);
 }
 
 export async function detectProjectInputs(projectId: string): Promise<DetectionResult> {
   const response = await fetch(`${API_BASE}/projects/${projectId}/detect`, {
     method: 'POST',
   });
-  return response.json();
+  return handleResponse<DetectionResult>(response);
 }
 
 export async function saveSchema(projectId: string, schema: Record<string, unknown>): Promise<void> {
-  await fetch(`${API_BASE}/projects/${projectId}/schema`, {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/schema`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(schema),
   });
+  await handleResponse<{ status: string }>(response);
 }
 
 // HuggingFace
@@ -214,48 +249,48 @@ export async function searchModels(params: {
   if (params.offset) searchParams.append('offset', String(params.offset));
 
   const response = await fetch(`${API_BASE}/hf/search?${searchParams}`);
-  return response.json();
+  return handleResponse<{ models: ModelSearchResult[]; total: number; page: number; pages: number }>(response);
 }
 
 export async function getModelDetails(modelId: string): Promise<ModelDetails> {
   const response = await fetch(`${API_BASE}/hf/models/${encodeURIComponent(modelId)}`);
-  return response.json();
+  return handleResponse<ModelDetails>(response);
 }
 
 export async function downloadModel(modelId: string, projectId?: string): Promise<{ status: string; path: string }> {
-  const params = new URLSearchParams({ model_id: modelId });
-  if (projectId) params.append('project_id', projectId);
-
-  const response = await fetch(`${API_BASE}/hf/download?${params}`, {
+  const response = await fetch(`${API_BASE}/hf/download`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_id: modelId, project_id: projectId }),
   });
-  return response.json();
+  return handleResponse<{ status: string; path: string }>(response);
 }
 
 export async function getCachedModels(): Promise<Array<{ name: string; path: string; size_mb: number }>> {
   const response = await fetch(`${API_BASE}/hf/cached`);
-  const data = await response.json();
+  const data = await handleResponse<{ models: Array<{ name: string; path: string; size_mb: number }> }>(response);
   return data.models;
 }
 
 // Skill Generator
 export async function getSkillPresets(): Promise<Record<string, { name: string; base_url: string; models: string[]; description: string }>> {
   const response = await fetch(`${API_BASE}/skills/presets`);
-  const data = await response.json();
+  const data = await handleResponse<{ presets: Record<string, { name: string; base_url: string; models: string[]; description: string }> }>(response);
   return data.presets;
 }
 
 export async function configureSkillGenerator(config: SkillConfig): Promise<void> {
-  await fetch(`${API_BASE}/skills/configure`, {
+  const response = await fetch(`${API_BASE}/skills/configure`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
   });
+  await handleResponse<{ status: string }>(response);
 }
 
 export async function testSkillConnection(): Promise<{ success: boolean; models?: string[]; error?: string }> {
   const response = await fetch(`${API_BASE}/skills/test`, { method: 'POST' });
-  return response.json();
+  return handleResponse<{ success: boolean; models?: string[]; error?: string }>(response);
 }
 
 export async function generateSkills(
@@ -267,7 +302,7 @@ export async function generateSkills(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project_info: projectInfo, agent_types: agentTypes }),
   });
-  const data = await response.json();
+  const data = await handleResponse<{ skills: GeneratedSkill[] }>(response);
   return data.skills;
 }
 
@@ -298,7 +333,7 @@ export async function generateProjectSkills(projectId: string, agentTypes?: stri
   const response = await fetch(`${API_BASE}/projects/${projectId}/skills/generate${params}`, {
     method: 'POST',
   });
-  const data = await response.json();
+  const data = await handleResponse<{ saved: string[] }>(response);
   return data.saved;
 }
 
@@ -316,7 +351,11 @@ export async function getStatus(): Promise<{
   services: Record<string, string>;
 }> {
   const response = await fetch(`${API_BASE}/status`);
-  return response.json();
+  return handleResponse<{
+    projects_count: number;
+    models_cached: number;
+    services: Record<string, string>;
+  }>(response);
 }
 
 export async function listTerminals(): Promise<Array<{
@@ -326,7 +365,12 @@ export async function listTerminals(): Promise<Array<{
   running: boolean;
 }>> {
   const response = await fetch(`${API_BASE}/terminals`);
-  const data = await response.json();
+  const data = await handleResponse<{ sessions: Array<{
+    session_id: string;
+    project_id: string;
+    agent: string;
+    running: boolean;
+  }> }>(response);
   return data.sessions;
 }
 
@@ -337,7 +381,12 @@ export async function getGeneratedFiles(projectId: string): Promise<Array<{
   content?: string;
 }>> {
   const response = await fetch(`${API_BASE}/projects/${projectId}/generated`);
-  const data = await response.json();
+  const data = await handleResponse<{ files: Array<{
+    name: string;
+    path: string;
+    size: number;
+    content?: string;
+  }> }>(response);
   return data.files;
 }
 
@@ -345,9 +394,10 @@ export async function getGeneratedFiles(projectId: string): Promise<Array<{
 export async function getSettings(): Promise<AppSettings> {
   const response = await fetch(`${API_BASE}/settings`);
   if (!response.ok) {
+    // Return empty settings on error (e.g., settings file doesn't exist)
     return {};
   }
-  const data = await response.json();
+  const data = await response.json() as { settings?: AppSettings };
   return data.settings || {};
 }
 
@@ -357,10 +407,7 @@ export async function updateSettings(settings: AppSettings): Promise<AppSettings
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
   });
-  if (!response.ok) {
-    throw new Error('Failed to save settings');
-  }
-  const data = await response.json();
+  const data = await handleResponse<{ settings: AppSettings }>(response);
   return data.settings;
 }
 
@@ -374,7 +421,7 @@ export async function testOpenAIConnection(config: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
   });
-  return response.json();
+  return handleResponse<{ success: boolean; models?: string[]; error?: string }>(response);
 }
 
 export async function testHuggingFaceConnection(token: string): Promise<{
@@ -387,5 +434,5 @@ export async function testHuggingFaceConnection(token: string): Promise<{
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token }),
   });
-  return response.json();
+  return handleResponse<{ success: boolean; username?: string; error?: string }>(response);
 }

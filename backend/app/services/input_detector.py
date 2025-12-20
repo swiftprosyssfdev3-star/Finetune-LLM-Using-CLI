@@ -9,6 +9,8 @@ Supports:
 - Archives (zip, tar.gz with mixed content)
 """
 
+import logging
+import struct
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
 from dataclasses import dataclass, asdict
@@ -18,6 +20,8 @@ import zipfile
 import tarfile
 import tempfile
 import shutil
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -169,7 +173,7 @@ class InputDetector:
             for p in all_images:
                 try:
                     total_size += Path(p).stat().st_size
-                except:
+                except OSError:
                     pass
 
             sample_dims = self._get_image_dimensions(Path(all_images[0])) if all_images else None
@@ -493,10 +497,10 @@ class InputDetector:
                         else:
                             length = struct.unpack('>H', f.read(2))[0]
                             f.read(length - 2)
-            except:
-                pass
-        except:
-            pass
+            except (OSError, struct.error, IndexError) as e:
+                logger.debug(f"Failed to read image dimensions without PIL: {e}")
+        except (OSError, ValueError) as e:
+            logger.debug(f"Failed to read image dimensions with PIL: {e}")
 
         return None
 

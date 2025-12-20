@@ -10,6 +10,7 @@ Features:
 """
 
 import asyncio
+import logging
 import os
 import pty
 import select
@@ -23,6 +24,8 @@ from typing import Dict, Optional
 from dataclasses import dataclass, field
 from fastapi import WebSocket, WebSocketDisconnect
 import json
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -258,8 +261,10 @@ exec bash
             # Child process
             try:
                 os.chdir(working_dir)
-            except:
-                pass
+            except OSError as e:
+                # Log to stderr since we're in child process
+                import sys
+                print(f"Warning: Could not change to working directory: {e}", file=sys.stderr)
 
             os.execvpe(command[0], command, env)
         else:
@@ -307,7 +312,8 @@ exec bash
                                     'type': 'output',
                                     'data': data.decode('utf-8', errors='replace')
                                 })
-                            except:
+                            except (ConnectionError, RuntimeError) as e:
+                                logger.debug(f"WebSocket send failed: {e}")
                                 break
                         else:
                             # EOF
@@ -329,12 +335,13 @@ exec bash
                 await asyncio.sleep(0.01)
 
         except Exception as e:
+            logger.error(f"Error in terminal output reader: {e}", exc_info=True)
             try:
                 await session.websocket.send_json({
                     'type': 'error',
                     'message': str(e)
                 })
-            except:
+            except (ConnectionError, RuntimeError):
                 pass
         finally:
             session.running = False
@@ -344,7 +351,7 @@ exec bash
                     'running': False,
                     'message': 'Session ended'
                 })
-            except:
+            except (ConnectionError, RuntimeError):
                 pass
 
     async def send_input(self, session_id: str, data: str):
@@ -369,8 +376,8 @@ exec bash
                 fcntl.ioctl(session.fd, termios.TIOCSWINSZ, winsize)
                 session.cols = cols
                 session.rows = rows
-            except:
-                pass
+            except OSError as e:
+                logger.debug(f"Failed to resize terminal: {e}")
 
     async def send_signal(self, session_id: str, sig: int):
         """Send a signal to the terminal process."""
@@ -387,8 +394,8 @@ exec bash
         if session and session.running:
             try:
                 os.write(session.fd, b'\x03')  # Ctrl+C
-            except:
-                pass
+            except OSError as e:
+                logger.debug(f"Failed to send Ctrl+C to terminal: {e}")
 
     async def kill(self, session_id: str):
         """Kill terminal session."""
@@ -410,21 +417,25 @@ exec bash
             await asyncio.sleep(0.1)
             os.kill(session.pid, signal.SIGKILL)
         except ProcessLookupError:
+            # Process already terminated
             pass
-        except:
-            pass
+        except OSError as e:
+            logger.debug(f"Error killing process: {e}")
 
         # Close file descriptor
         try:
             os.close(session.fd)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug(f"Error closing file descriptor: {e}")
 
-        # Wait for process
+        # Wait for process to avoid zombies
         try:
             os.waitpid(session.pid, os.WNOHANG)
-        except:
+        except ChildProcessError:
+            # Process already reaped
             pass
+        except OSError as e:
+            logger.debug(f"Error waiting for process: {e}")
 
         # Remove from sessions
         if session_id in self.sessions:
@@ -542,14 +553,15 @@ exec bash
                     continue
 
         except WebSocketDisconnect:
-            pass
+            logger.debug(f"WebSocket disconnected for session {session_id}")
         except Exception as e:
+            logger.error(f"WebSocket error for session {session_id}: {e}", exc_info=True)
             try:
                 await websocket.send_json({
                     'type': 'error',
                     'message': str(e)
                 })
-            except:
+            except (ConnectionError, RuntimeError):
                 pass
         finally:
             # Cleanup

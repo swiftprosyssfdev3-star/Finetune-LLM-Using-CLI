@@ -8,6 +8,7 @@ Autonomous multi-agent platform for VLM fine-tuning with:
 - Real-time terminal streaming
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -18,18 +19,53 @@ import json
 import os
 import uuid
 import shutil
+import logging
 from datetime import datetime
 
 from app.services.huggingface_browser import hf_browser
 from app.services.input_detector import input_detector
 from app.services.skill_generator import skill_generator, SkillGeneratorConfig, PROVIDER_PRESETS
 from app.services.terminal_manager import terminal_manager
+from app.models import (
+    ProjectCreate, ProjectUpdate, ProjectResponse,
+    AppSettings, OpenAITestRequest, HuggingFaceTestRequest,
+    SkillGeneratorConfigRequest, SkillGenerateRequest,
+    ModelDownloadRequest, StatusResponse,
+)
 
-# Create FastAPI app
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Ensure directories exist
+PROJECTS_DIR = Path("./projects")
+MODELS_DIR = Path("./models/cache")
+SETTINGS_FILE = Path("./settings.json")
+PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan context manager for startup and shutdown."""
+    # Startup
+    logger.info("Bauhaus Fine-Tuning Studio starting...")
+    logger.info(f"Projects directory: {PROJECTS_DIR.absolute()}")
+    logger.info(f"Models cache: {MODELS_DIR.absolute()}")
+    yield
+    # Shutdown
+    logger.info("Bauhaus Fine-Tuning Studio shutting down...")
+
+
+# Create FastAPI app with lifespan
 app = FastAPI(
     title="Bauhaus Fine-Tuning Studio",
     description="Autonomous multi-agent VLM fine-tuning platform",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS middleware
@@ -40,13 +76,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Ensure directories exist
-PROJECTS_DIR = Path("./projects")
-MODELS_DIR = Path("./models/cache")
-SETTINGS_FILE = Path("./settings.json")
-PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -86,14 +115,22 @@ def load_settings() -> Dict[str, Any]:
     if SETTINGS_FILE.exists():
         try:
             return json.loads(SETTINGS_FILE.read_text())
-        except:
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse settings file: {e}")
+            return {}
+        except OSError as e:
+            logger.warning(f"Failed to read settings file: {e}")
             return {}
     return {}
 
 
 def save_settings(settings: Dict[str, Any]) -> None:
     """Save settings to file."""
-    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+    try:
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+    except OSError as e:
+        logger.error(f"Failed to save settings: {e}")
+        raise
 
 
 @app.get("/api/settings")
@@ -156,15 +193,12 @@ async def update_settings(settings: Dict[str, Any]):
 
 
 @app.post("/api/settings/test/openai")
-async def test_openai_connection(config: Dict[str, Any]):
+async def test_openai_connection(config: OpenAITestRequest):
     """Test OpenAI-compatible API connection."""
     import httpx
 
-    base_url = config.get('base_url', '').rstrip('/')
-    api_key = config.get('api_key', '')
-
-    if not base_url or not api_key:
-        return {"success": False, "error": "Base URL and API key are required"}
+    base_url = config.base_url.rstrip('/')
+    api_key = config.api_key
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -193,14 +227,11 @@ async def test_openai_connection(config: Dict[str, Any]):
 
 
 @app.post("/api/settings/test/huggingface")
-async def test_huggingface_connection(config: Dict[str, Any]):
+async def test_huggingface_connection(config: HuggingFaceTestRequest):
     """Test HuggingFace token."""
     import httpx
 
-    token = config.get('token', '')
-
-    if not token:
-        return {"success": False, "error": "Token is required"}
+    token = config.token
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -269,19 +300,19 @@ async def get_model_details(model_id: str):
 
 
 @app.post("/api/hf/download")
-async def download_model(
-    model_id: str,
-    local_dir: Optional[str] = None,
-    project_id: Optional[str] = None,
-):
+async def download_model(request: ModelDownloadRequest):
     """Download a model from HuggingFace."""
     try:
-        if project_id and not local_dir:
-            local_dir = str(PROJECTS_DIR / project_id / "model")
+        local_dir = request.local_dir
+        if request.project_id and not local_dir:
+            local_dir = str(PROJECTS_DIR / request.project_id / "model")
 
-        path = await hf_browser.download_model(model_id, local_dir)
-        return {"status": "completed", "path": path, "model_id": model_id}
+        logger.info(f"Downloading model: {request.model_id}")
+        path = await hf_browser.download_model(request.model_id, local_dir)
+        logger.info(f"Model downloaded to: {path}")
+        return {"status": "completed", "path": path, "model_id": request.model_id}
     except Exception as e:
+        logger.error(f"Failed to download model: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -323,9 +354,12 @@ async def list_projects():
 
 
 @app.post("/api/projects")
-async def create_project(name: str, description: Optional[str] = None):
+async def create_project(project: ProjectCreate):
     """Create a new project."""
-    project_id = f"{name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:8]}"
+    # Sanitize name for filesystem
+    safe_name = project.name.lower().replace(' ', '-')
+    safe_name = ''.join(c for c in safe_name if c.isalnum() or c == '-')
+    project_id = f"{safe_name}-{uuid.uuid4().hex[:8]}"
     project_dir = PROJECTS_DIR / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -340,14 +374,15 @@ async def create_project(name: str, description: Optional[str] = None):
     # Create project metadata
     meta = {
         "id": project_id,
-        "name": name,
-        "description": description or "",
+        "name": project.name,
+        "description": project.description or "",
         "created": datetime.utcnow().isoformat(),
         "status": "created",
         "model_id": None,
         "method": "lora",
     }
     (project_dir / "project.json").write_text(json.dumps(meta, indent=2))
+    logger.info(f"Created project: {project_id}")
 
     return {"project": meta}
 
@@ -385,7 +420,7 @@ async def delete_project(project_id: str):
 
 
 @app.patch("/api/projects/{project_id}")
-async def update_project(project_id: str, updates: Dict[str, Any]):
+async def update_project(project_id: str, updates: ProjectUpdate):
     """Update project metadata."""
     project_dir = PROJECTS_DIR / project_id
     if not project_dir.exists():
@@ -393,9 +428,13 @@ async def update_project(project_id: str, updates: Dict[str, Any]):
 
     meta_file = project_dir / "project.json"
     meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
-    meta.update(updates)
+
+    # Only update fields that are provided
+    update_data = updates.model_dump(exclude_unset=True)
+    meta.update(update_data)
     meta["updated"] = datetime.utcnow().isoformat()
     meta_file.write_text(json.dumps(meta, indent=2))
+    logger.info(f"Updated project: {project_id}")
 
     return {"project": meta}
 
@@ -493,18 +532,19 @@ async def get_skill_presets():
 
 
 @app.post("/api/skills/configure")
-async def configure_skill_generator(config: Dict[str, Any]):
+async def configure_skill_generator(config: SkillGeneratorConfigRequest):
     """Configure the skill generator API."""
     try:
         skill_generator.configure(SkillGeneratorConfig(
-            base_url=config['base_url'],
-            api_key=config['api_key'],
-            model=config['model'],
-            temperature=config.get('temperature', 0.7),
-            max_tokens=config.get('max_tokens', 4096),
-            extra_headers=config.get('extra_headers'),
+            base_url=config.base_url,
+            api_key=config.api_key,
+            model=config.model,
+            temperature=config.temperature or 0.7,
+            max_tokens=config.max_tokens or 4096,
+            extra_headers=config.extra_headers,
         ))
-        return {"status": "configured", "model": config['model']}
+        logger.info(f"Skill generator configured with model: {config.model}")
+        return {"status": "configured", "model": config.model}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -533,13 +573,13 @@ async def test_skill_generator():
 
 
 @app.post("/api/skills/generate")
-async def generate_skills(
-    project_info: Dict[str, Any],
-    agent_types: Optional[List[str]] = None
-):
+async def generate_skills(request: SkillGenerateRequest):
     """Generate skill files for agents."""
     try:
-        skills = await skill_generator.generate_all_skills(project_info, agent_types)
+        skills = await skill_generator.generate_all_skills(
+            request.project_info,
+            request.agent_types
+        )
         return {
             "skills": [
                 {"filename": s.filename, "content": s.content, "agent": s.agent_type}
@@ -547,6 +587,7 @@ async def generate_skills(
             ]
         }
     except Exception as e:
+        logger.error(f"Failed to generate skills: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -588,11 +629,7 @@ async def generate_project_skills(
         # Save skill files
         saved = []
         for skill in skills:
-            if skill.filename.startswith("."):
-                file_path = project_dir / skill.filename
-            else:
-                file_path = project_dir / skill.filename
-
+            file_path = project_dir / skill.filename
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(skill.content)
             saved.append(str(file_path))
@@ -692,22 +729,11 @@ async def get_generated_files(project_id: str):
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Global exception handler."""
+    logger.error(f"Unhandled exception: {type(exc).__name__}: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"detail": str(exc), "type": type(exc).__name__}
     )
-
-
-# ═══════════════════════════════════════════════════════════════
-# STARTUP
-# ═══════════════════════════════════════════════════════════════
-
-@app.on_event("startup")
-async def startup():
-    """Initialize services on startup."""
-    print("Bauhaus Fine-Tuning Studio starting...")
-    print(f"Projects directory: {PROJECTS_DIR.absolute()}")
-    print(f"Models cache: {MODELS_DIR.absolute()}")
 
 
 if __name__ == "__main__":

@@ -9,13 +9,17 @@ Features:
 - Fine-tuning compatibility detection
 """
 
-from huggingface_hub import HfApi, snapshot_download, hf_hub_download
+import asyncio
+import logging
+import os
+import re
+from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple, Callable
 from dataclasses import dataclass, asdict, field
-from pathlib import Path
-import asyncio
-import re
-import os
+
+from huggingface_hub import HfApi, snapshot_download, hf_hub_download
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -269,8 +273,8 @@ class HuggingFaceBrowser:
             )
             if hasattr(card_info, 'card_data') and card_info.card_data:
                 model_card = str(card_info.card_data)[:2000]
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to get model card for {model_id}: {e}")
 
         return ModelDetails(
             model_id=info.id,

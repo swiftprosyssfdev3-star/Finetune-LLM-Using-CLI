@@ -10,11 +10,14 @@ Supports:
 - Any custom OpenAI-compatible endpoint
 """
 
+import logging
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import httpx
 import json
 import os
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -189,7 +192,7 @@ class SkillGeneratorService:
     async def generate_all_skills(
         self,
         project_info: Dict[str, Any],
-        agent_types: List[str] = None
+        agent_types: Optional[List[str]] = None
     ) -> List[GeneratedSkill]:
         """
         Generate skill files for all specified agent types.
@@ -213,12 +216,12 @@ class SkillGeneratorService:
                     skills.append(skill)
                 else:
                     # No API configured, use fallback templates
-                    print(f"[SkillGenerator] No API configured, using template for {agent_type}")
+                    logger.info(f"No API configured, using template for {agent_type}")
                     skill = self._generate_fallback_skill(project_info, agent_type)
                     skills.append(skill)
             except Exception as e:
                 # Generate fallback template on API error
-                print(f"[SkillGenerator] API error for {agent_type}: {e}, using template")
+                logger.warning(f"API error for {agent_type}: {e}, using template")
                 skill = self._generate_fallback_skill(project_info, agent_type)
                 skills.append(skill)
 
