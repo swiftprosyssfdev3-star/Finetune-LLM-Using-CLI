@@ -411,11 +411,23 @@ async def get_cached_models():
     cached = []
     for model_dir in MODELS_DIR.glob("*"):
         if model_dir.is_dir():
+            # Calculate size
+            try:
+                size_mb = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file()) / (1024 * 1024)
+            except Exception:
+                size_mb = 0
+
+            # Keep the original directory name for consistency
+            # This uses the format "org--model" which is how HF stores them
             cached.append({
-                "name": model_dir.name.replace("--", "/"),
+                "name": model_dir.name,  # Keep original format (org--model)
+                "model_id": model_dir.name.replace("--", "/"),  # Add human-readable format
                 "path": str(model_dir),
-                "size_mb": sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file()) / (1024 * 1024)
+                "size_mb": size_mb
             })
+
+    # Sort by modification time (most recent first)
+    cached.sort(key=lambda x: Path(x["path"]).stat().st_mtime if Path(x["path"]).exists() else 0, reverse=True)
     return {"models": cached}
 
 
@@ -856,6 +868,36 @@ async def startup():
     print("Bauhaus Fine-Tuning Studio starting...")
     print(f"Projects directory: {PROJECTS_DIR.absolute()}")
     print(f"Models cache: {MODELS_DIR.absolute()}")
+
+    # Load and apply settings on startup
+    settings = load_settings()
+    if settings:
+        print(f"Settings loaded from {SETTINGS_FILE}")
+
+        # Configure skill generator if API settings exist
+        openai_config = settings.get('openai', {})
+        if openai_config.get('base_url') and openai_config.get('api_key'):
+            try:
+                skill_generator.configure(SkillGeneratorConfig(
+                    base_url=openai_config['base_url'],
+                    api_key=openai_config['api_key'],
+                    model=openai_config.get('model', 'gpt-4o'),
+                ))
+                print(f"Skill generator configured with {openai_config.get('model', 'gpt-4o')}")
+            except Exception as e:
+                print(f"Failed to configure skill generator: {e}")
+
+        # Set HuggingFace token if available
+        hf_config = settings.get('huggingface', {})
+        if hf_config.get('token'):
+            os.environ['HF_TOKEN'] = hf_config['token']
+            print("HuggingFace token set from settings")
+    else:
+        print("No settings file found, using defaults")
+
+    # List cached models
+    cached_count = len(list(MODELS_DIR.glob("*")))
+    print(f"Found {cached_count} cached models")
 
 
 if __name__ == "__main__":
